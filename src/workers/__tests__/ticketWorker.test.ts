@@ -1,18 +1,43 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { PurgeQueueCommand, ReceiveMessageCommand } from '@aws-sdk/client-sqs';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
 import sqs from '../../lib/sqs.js';
 import pool from '../../lib/db.js';
 import { insertTicket } from '../../repositories/ticketRepo.js';
 import { sendMessage } from '../../queues/producer.js';
 
+vi.mock('../../adapters/aiAdapter.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../adapters/aiAdapter.js')>();
+  return {
+    ...actual,
+    triageTicket: vi.fn().mockResolvedValue({
+      category: 'technical',
+      priority: 'high',
+      sentiment: 'neutral',
+      escalation: false,
+      routingTarget: 'engineering',
+      summary: 'User cannot login due to 403 error on admin panel',
+    }),
+    draftResolution: vi.fn().mockResolvedValue({
+      customerReply: 'Thank you for reaching out. We are looking into your issue and will respond shortly.',
+      internalNote: 'Reviewed by AI triage. Engineering team to investigate 403 error.',
+      nextActions: ['Check permissions', 'Review logs'],
+    }),
+  };
+});
+
 const QUEUE_URL = process.env['SQS_QUEUE_URL']!;
 const DLQ_URL = process.env['SQS_DLQ_URL']!;
 
-async function drainQueue(queueUrl: string): Promise<{ ticketId?: string; failedPhase?: string }[]> {
-  const result = await sqs.send(
-    new ReceiveMessageCommand({ QueueUrl: queueUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: 1 }),
-  );
-  return (result.Messages ?? []).map(m => JSON.parse(m.Body ?? '{}'));
+async function drainQueue(queueUrl: string): Promise<void> {
+  while (true) {
+    const { Messages } = await sqs.send(
+      new ReceiveMessageCommand({ QueueUrl: queueUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: 0 }),
+    );
+    if (!Messages?.length) break;
+    await Promise.all(
+      Messages.map(m => sqs.send(new DeleteMessageCommand({ QueueUrl: queueUrl, ReceiptHandle: m.ReceiptHandle! }))),
+    );
+  }
 }
 
 async function runWorkerOnce(ticketId: string): Promise<void> {
@@ -29,9 +54,8 @@ beforeEach(async () => {
   await pool.query('DELETE FROM ticket_events');
   await pool.query('DELETE FROM ticket_phases');
   await pool.query('DELETE FROM tickets');
-  await sqs.send(new PurgeQueueCommand({ QueueUrl: QUEUE_URL }));
-  await sqs.send(new PurgeQueueCommand({ QueueUrl: DLQ_URL }));
-  await new Promise(r => setTimeout(r, 300));
+  await drainQueue(QUEUE_URL);
+  await drainQueue(DLQ_URL);
 });
 
 describe('US-3.1 — Worker processes tickets automatically', () => {

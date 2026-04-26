@@ -1,12 +1,8 @@
 import { SQSClient } from '@aws-sdk/client-sqs';
 
 const sqs = new SQSClient({
-  region: 'us-east-1',
-  endpoint: 'http://localhost:4566',
-  credentials: {
-    accessKeyId: 'test',
-    secretAccessKey: 'test',
-  },
+  region: process.env['AWS_REGION'] ?? 'us-east-1',
+  ...(process.env['SQS_ENDPOINT'] && { endpoint: process.env['SQS_ENDPOINT'] }),
 });
 
 export default sqs;

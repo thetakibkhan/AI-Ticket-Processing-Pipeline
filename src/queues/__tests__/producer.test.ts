@@ -3,16 +3,26 @@ import { sendMessage } from '../producer.js';
 import {
   ReceiveMessageCommand,
   DeleteMessageCommand,
-  PurgeQueueCommand,
   GetQueueAttributesCommand,
 } from '@aws-sdk/client-sqs';
 import sqs from '../../lib/sqs.js';
 
 const QUEUE_URL = process.env['SQS_QUEUE_URL']!;
 
+async function drainQueue(queueUrl: string): Promise<void> {
+  while (true) {
+    const { Messages } = await sqs.send(
+      new ReceiveMessageCommand({ QueueUrl: queueUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: 0 }),
+    );
+    if (!Messages?.length) break;
+    await Promise.all(
+      Messages.map(m => sqs.send(new DeleteMessageCommand({ QueueUrl: queueUrl, ReceiptHandle: m.ReceiptHandle! }))),
+    );
+  }
+}
+
 beforeEach(async () => {
-  await sqs.send(new PurgeQueueCommand({ QueueUrl: QUEUE_URL }));
-  await new Promise(r => setTimeout(r, 300));
+  await drainQueue(QUEUE_URL);
 });
 
 async function receiveOne() {
@@ -20,13 +30,6 @@ async function receiveOne() {
     new ReceiveMessageCommand({ QueueUrl: QUEUE_URL, MaxNumberOfMessages: 1, WaitTimeSeconds: 2 }),
   );
   return Messages?.[0] ?? null;
-}
-
-async function receiveMany(max: number) {
-  const { Messages } = await sqs.send(
-    new ReceiveMessageCommand({ QueueUrl: QUEUE_URL, MaxNumberOfMessages: max, WaitTimeSeconds: 2 }),
-  );
-  return Messages ?? [];
 }
 
 async function deleteMsg(receiptHandle: string) {
@@ -59,8 +62,22 @@ describe('US-1.4 — Customer Tickets Are Queued and Processed in Order', () => 
     await sendMessage('ticket-002');
     await sendMessage('ticket-003');
 
-    const msgs = await receiveMany(10);
-    expect(msgs.length).toBe(3);
+    const received: string[] = [];
+    for (let i = 0; i < 5 && received.length < 3; i++) {
+      const { Messages } = await sqs.send(
+        new ReceiveMessageCommand({ QueueUrl: QUEUE_URL, MaxNumberOfMessages: 10, WaitTimeSeconds: 1 }),
+      );
+      if (Messages) {
+        received.push(...Messages.map(m => String(JSON.parse(m.Body!).ticketId)));
+        await Promise.all(
+          Messages.map(m => sqs.send(new DeleteMessageCommand({ QueueUrl: QUEUE_URL, ReceiptHandle: m.ReceiptHandle! }))),
+        );
+      }
+    }
+    expect(received).toHaveLength(3);
+    expect(received).toContain('ticket-001');
+    expect(received).toContain('ticket-002');
+    expect(received).toContain('ticket-003');
   });
 
   it('queue holds message count correctly', async () => {

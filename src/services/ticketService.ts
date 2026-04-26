@@ -4,16 +4,23 @@ import logger from '../lib/logger.js';
 
 const MAX_SQS_RETRIES = 3;
 
-async function enqueueWithRetry(ticketId: string, attempt = 1): Promise<void> {
-  try {
-    await sendMessage(ticketId);
-  } catch (err) {
-    if (attempt < MAX_SQS_RETRIES) {
-      const delay = Math.pow(2, attempt) * 500;
-      logger.warn({ ticketId, attempt, delay }, 'sqs enqueue failed, retrying');
-      setTimeout(() => void enqueueWithRetry(ticketId, attempt + 1), delay);
-    } else {
-      logger.error({ ticketId, attempt, err }, 'sqs enqueue failed after max retries — manual replay required');
+function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+async function retryEnqueue(ticketId: string): Promise<void> {
+  for (let attempt = 1; attempt <= MAX_SQS_RETRIES; attempt++) {
+    const delayMs = Math.pow(2, attempt - 1) * 500;
+    await sleep(delayMs);
+    try {
+      await sendMessage(ticketId);
+      return;
+    } catch (err) {
+      if (attempt >= MAX_SQS_RETRIES) {
+        logger.error({ ticketId, attempt, err }, 'sqs enqueue failed after max retries — manual replay required');
+      } else {
+        logger.warn({ ticketId, attempt, delayMs }, 'sqs enqueue retry failed, will retry');
+      }
     }
   }
 }
@@ -24,8 +31,8 @@ export async function createTicket(subject: string, body: string): Promise<Ticke
   try {
     await sendMessage(ticket.id);
   } catch (err) {
-    logger.warn({ ticketId: ticket.id, err }, 'initial sqs enqueue failed, starting background retry');
-    setTimeout(() => void enqueueWithRetry(ticket.id, 2), 500);
+    logger.warn({ ticketId: ticket.id, err }, 'initial sqs enqueue failed, starting background retries');
+    void retryEnqueue(ticket.id);
   }
 
   return ticket;

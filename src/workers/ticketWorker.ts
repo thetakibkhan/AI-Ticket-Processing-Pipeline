@@ -9,38 +9,26 @@ import logger from '../lib/logger.js';
 import { getTicketById, updateTicketStatus } from '../repositories/ticketRepo.js';
 import { getPhase, insertPhase, updatePhaseStatus, type PhaseType } from '../repositories/phaseRepo.js';
 import { insertEvent } from '../repositories/eventRepo.js';
+import { triageTicket, draftResolution, ZodValidationError, Phase1Schema, type Phase1Output } from '../adapters/aiAdapter.js';
+import { z } from 'zod';
 
 if (!process.env['SQS_QUEUE_URL']) throw new Error('SQS_QUEUE_URL is not set');
 if (!process.env['SQS_DLQ_URL']) throw new Error('SQS_DLQ_URL is not set');
 
 const QUEUE_URL = process.env['SQS_QUEUE_URL'];
 const DLQ_URL = process.env['SQS_DLQ_URL'];
-const MAX_ATTEMPTS = 3;
 
-// ─── Phase stubs (replaced by real AI in Epic 4) ─────────────────────────────
+const WORKER_CONFIG = {
+  maxAttempts: 3,
+  pollWaitSeconds: 20,
+  shutdownTimeoutMs: 60_000,
+  sqsMaxDelaySeconds: 900,
+} as const;
 
-async function runPhase1(ticket: { subject: string; body: string }): Promise<unknown> {
-  await new Promise(r => setTimeout(r, 100));
-  return {
-    category: 'Technical',
-    priority: 'High',
-    sentiment: 'Neutral',
-    escalation: false,
-    routing: 'engineering',
-    summary: ticket.subject,
-  };
-}
-
-async function runPhase2(
-  ticket: { subject: string; body: string },
-  _phase1Output: unknown,
-): Promise<unknown> {
-  await new Promise(r => setTimeout(r, 100));
-  return {
-    customerReply: 'Thank you for reaching out. We are looking into your issue.',
-    internalNote: 'Reviewed by AI triage system.',
-    nextActions: ['Assign to engineering team'],
-  };
+function calculateBackoffSeconds(attempts: number): number {
+  const jitterMs = Math.floor(Math.random() * 500);
+  const delayMs = Math.pow(2, attempts) * 1000 + jitterMs;
+  return Math.min(Math.ceil(delayMs / 1000), WORKER_CONFIG.sqsMaxDelaySeconds);
 }
 
 // ─── Graceful shutdown ────────────────────────────────────────────────────────
@@ -53,7 +41,7 @@ process.on('SIGTERM', () => {
   setTimeout(() => {
     logger.warn('shutdown timeout reached, forcing exit');
     process.exit(1);
-  }, 60_000).unref();
+  }, WORKER_CONFIG.shutdownTimeoutMs).unref();
 });
 
 // ─── SQS helpers ─────────────────────────────────────────────────────────────
@@ -92,12 +80,12 @@ async function runPhase(
   phase: PhaseType,
   receiptHandle: string,
   ticket: { subject: string; body: string },
-  phase1Output: unknown,
+  phase1Output: Phase1Output | null,
 ): Promise<void> {
   let phaseRow = await getPhase(ticketId, phase);
   if (!phaseRow) phaseRow = await insertPhase(ticketId, phase);
 
-  if (phaseRow.attempts >= MAX_ATTEMPTS) {
+  if (phaseRow.attempts >= WORKER_CONFIG.maxAttempts) {
     await routeToDLQ(ticketId, phase, receiptHandle);
     return;
   }
@@ -106,9 +94,18 @@ async function runPhase(
   await insertEvent({ ticketId, phase, eventType: 'phase_started' });
   logger.info({ ticketId, phase }, 'phase started');
 
+  const phaseAttempt = phaseRow.attempts + 1;
+
+  const ticketInput = { id: ticketId, subject: ticket.subject, body: ticket.body };
+
   try {
-    const output =
-      phase === 'phase1' ? await runPhase1(ticket) : await runPhase2(ticket, phase1Output);
+    let output: unknown;
+    if (phase === 'phase1') {
+      output = await triageTicket(ticketInput, phaseAttempt);
+    } else {
+      if (phase1Output === null) throw new Error('phase2 requires phase1 output');
+      output = await draftResolution(ticketInput, phase1Output, phaseAttempt);
+    }
 
     await updatePhaseStatus(ticketId, phase, 'success', output);
     await insertEvent({ ticketId, phase, eventType: 'phase_completed', payload: output });
@@ -126,14 +123,19 @@ async function runPhase(
     await insertEvent({ ticketId, phase, eventType: 'phase_failed', payload: { error: String(err) } });
     logger.error({ ticketId, phase, err }, 'phase failed');
 
-    const updated = await getPhase(ticketId, phase);
-    const attempts = updated?.attempts ?? MAX_ATTEMPTS;
+    // Zod validation failure = bad AI output, retrying same input won't help
+    if (err instanceof ZodValidationError) {
+      await routeToDLQ(ticketId, phase, receiptHandle);
+      return;
+    }
 
-    if (attempts >= MAX_ATTEMPTS) {
+    const updated = await getPhase(ticketId, phase);
+    const attempts = updated?.attempts ?? WORKER_CONFIG.maxAttempts;
+
+    if (attempts >= WORKER_CONFIG.maxAttempts) {
       await routeToDLQ(ticketId, phase, receiptHandle);
     } else {
-      const delayMs = Math.pow(2, attempts) * 1000 + Math.floor(Math.random() * 500);
-      const delaySecs = Math.min(Math.ceil(delayMs / 1000), 900);
+      const delaySecs = calculateBackoffSeconds(attempts);
       logger.info({ ticketId, phase, attempts, delaySecs }, 'retry scheduled');
       await insertEvent({
         ticketId,
@@ -153,15 +155,18 @@ export async function processMessageForTest(body: string, receiptHandle: string)
   return processMessage(body, receiptHandle);
 }
 
-async function processMessage(body: string, receiptHandle: string): Promise<void> {
-  const parsed = JSON.parse(body) as { ticketId?: string };
-  const ticketId = parsed.ticketId;
+const MessageSchema = z.object({ ticketId: z.string().uuid() });
 
-  if (!ticketId) {
+async function processMessage(body: string, receiptHandle: string): Promise<void> {
+  const parsed = MessageSchema.safeParse(JSON.parse(body));
+
+  if (!parsed.success) {
     logger.warn({ body }, 'malformed message, discarding');
     await deleteMessage(receiptHandle);
     return;
   }
+
+  const { ticketId } = parsed.data;
 
   const ticket = await getTicketById(ticketId);
   if (!ticket) {
@@ -181,7 +186,13 @@ async function processMessage(body: string, receiptHandle: string): Promise<void
   }
 
   if (!phase2 || phase2.status !== 'success') {
-    await runPhase(ticketId, 'phase2', receiptHandle, ticket, phase1.output);
+    const p1out = Phase1Schema.safeParse(phase1.output);
+    if (!p1out.success) {
+      logger.error({ ticketId }, 'phase1 output in DB failed schema validation, routing to DLQ');
+      await routeToDLQ(ticketId, 'phase2', receiptHandle);
+      return;
+    }
+    await runPhase(ticketId, 'phase2', receiptHandle, ticket, p1out.data);
     return;
   }
 
@@ -200,7 +211,7 @@ async function poll(): Promise<void> {
       const result = await sqs.send(
         new ReceiveMessageCommand({
           QueueUrl: QUEUE_URL,
-          WaitTimeSeconds: 20,
+          WaitTimeSeconds: WORKER_CONFIG.pollWaitSeconds,
           MaxNumberOfMessages: 1,
         }),
       );
