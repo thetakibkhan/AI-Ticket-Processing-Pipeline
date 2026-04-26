@@ -1,10 +1,13 @@
 import pool from '../lib/db.js';
+import { assertSingleRow } from './repoUtils.js';
+
+export type TicketStatus = 'queued' | 'processing' | 'completed' | 'failed';
 
 export interface Ticket {
   id: string;
   subject: string;
   body: string;
-  status: string;
+  status: TicketStatus;
   created_at: Date;
   updated_at: Date;
 }
@@ -14,7 +17,7 @@ export interface InsertTicketInput {
   body: string;
 }
 
-export async function getTicketById(id: string | string[]): Promise<Ticket | null> {
+export async function getTicketById(id: string): Promise<Ticket | null> {
   const { rows } = await pool.query<Ticket>(
     `SELECT * FROM tickets WHERE id = $1`,
     [id],
@@ -22,7 +25,7 @@ export async function getTicketById(id: string | string[]): Promise<Ticket | nul
   return rows[0] ?? null;
 }
 
-export async function updateTicketStatus(id: string, status: string): Promise<void> {
+export async function updateTicketStatus(id: string, status: TicketStatus): Promise<void> {
   await pool.query(`UPDATE tickets SET status = $2, updated_at = NOW() WHERE id = $1`, [id, status]);
 }
 
@@ -33,8 +36,5 @@ export async function insertTicket(input: InsertTicketInput): Promise<Ticket> {
      RETURNING *`,
     [input.subject, input.body],
   );
-
-  const row = rows[0];
-  if (!row) throw new Error('Insert returned no row');
-  return row;
+  return assertSingleRow(rows, 'insertTicket');
 }

@@ -1,5 +1,8 @@
 import pool from '../lib/db.js';
+import { assertSingleRow } from './repoUtils.js';
 import type { PhaseType } from './phaseRepo.js';
+
+const MAX_EVENTS_PER_TICKET = 20;
 
 export type EventType =
   | 'phase_started'
@@ -32,10 +35,7 @@ export async function insertEvent(input: InsertEventInput): Promise<TicketEvent>
      RETURNING *`,
     [input.ticketId, input.phase, input.eventType, JSON.stringify(input.payload ?? null)],
   );
-
-  const row = rows[0];
-  if (!row) throw new Error('Insert returned no row');
-  return row;
+  return assertSingleRow(rows, 'insertEvent');
 }
 
 export async function getEvents(ticketId: string): Promise<TicketEvent[]> {
@@ -43,9 +43,8 @@ export async function getEvents(ticketId: string): Promise<TicketEvent[]> {
     `SELECT * FROM ticket_events
      WHERE ticket_id = $1
      ORDER BY created_at ASC
-     LIMIT 20`,
-    [ticketId],
+     LIMIT $2`,
+    [ticketId, MAX_EVENTS_PER_TICKET],
   );
-
   return rows;
 }

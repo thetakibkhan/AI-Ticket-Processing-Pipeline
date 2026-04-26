@@ -1,4 +1,5 @@
 import pool from '../lib/db.js';
+import { assertSingleRow } from './repoUtils.js';
 
 export type PhaseType = 'phase1' | 'phase2';
 export type PhaseStatus = 'started' | 'progress' | 'success' | 'failure';
@@ -21,10 +22,7 @@ export async function insertPhase(ticketId: string, phase: PhaseType): Promise<T
      RETURNING *`,
     [ticketId, phase],
   );
-
-  const row = rows[0];
-  if (!row) throw new Error('Insert returned no row');
-  return row;
+  return assertSingleRow(rows, 'insertPhase');
 }
 
 export async function getPhase(ticketId: string, phase: PhaseType): Promise<TicketPhase | null> {
@@ -32,7 +30,6 @@ export async function getPhase(ticketId: string, phase: PhaseType): Promise<Tick
     `SELECT * FROM ticket_phases WHERE ticket_id = $1 AND phase = $2`,
     [ticketId, phase],
   );
-
   return rows[0] ?? null;
 }
 
@@ -58,7 +55,5 @@ export async function updatePhaseStatus(
     [ticketId, phase, status, isStarting, JSON.stringify(output ?? null), isTerminal],
   );
 
-  const row = rows[0];
-  if (!row) throw new Error('Phase not found');
-  return row;
+  return assertSingleRow(rows, 'updatePhaseStatus');
 }

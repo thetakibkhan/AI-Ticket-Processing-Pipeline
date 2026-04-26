@@ -1,6 +1,13 @@
 import { getIO } from './socketServer.js';
 import logger from '../lib/logger.js';
 
+export const TICKET_EVENTS = {
+  STARTED:   'ticket.started',
+  PROGRESS:  'ticket.progress',
+  COMPLETED: 'ticket.completed',
+  FAILED:    'ticket.failed',
+} as const;
+
 function emit(ticketId: string, event: string, payload: Record<string, unknown>): void {
   try {
     getIO().to(`ticket:${ticketId}`).emit(event, { ticketId, ...payload, timestamp: new Date().toISOString() });
@@ -10,17 +17,17 @@ function emit(ticketId: string, event: string, payload: Record<string, unknown>)
 }
 
 export function emitTicketStarted(ticketId: string): void {
-  emit(ticketId, 'ticket.started', {});
+  emit(ticketId, TICKET_EVENTS.STARTED, {});
 }
 
 export function emitTicketProgress(ticketId: string): void {
-  emit(ticketId, 'ticket.progress', { completedPhase: 'phase1' });
+  emit(ticketId, TICKET_EVENTS.PROGRESS, { completedPhase: 'phase1' });
 }
 
 export function emitTicketCompleted(ticketId: string, phase1Output: unknown, phase2Output: unknown): void {
-  emit(ticketId, 'ticket.completed', { phase1Output, phase2Output });
+  emit(ticketId, TICKET_EVENTS.COMPLETED, { phase1Output, phase2Output });
 }
 
 export function emitTicketFailed(ticketId: string, reason: string): void {
-  emit(ticketId, 'ticket.failed', { reason });
+  emit(ticketId, TICKET_EVENTS.FAILED, { reason });
 }

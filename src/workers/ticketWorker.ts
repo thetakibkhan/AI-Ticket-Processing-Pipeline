@@ -100,14 +100,14 @@ async function runPhase(
 
   const ticketInput = { id: ticketId, subject: ticket.subject, body: ticket.body };
 
+  const runAI = async (): Promise<unknown> => {
+    if (phase === 'phase1') return triageTicket(ticketInput, phaseAttempt);
+    if (phase1Output === null) throw new Error('phase2 requires phase1 output');
+    return draftResolution(ticketInput, phase1Output, phaseAttempt);
+  };
+
   try {
-    let output: unknown;
-    if (phase === 'phase1') {
-      output = await triageTicket(ticketInput, phaseAttempt);
-    } else {
-      if (phase1Output === null) throw new Error('phase2 requires phase1 output');
-      output = await draftResolution(ticketInput, phase1Output, phaseAttempt);
-    }
+    const output = await runAI();
 
     await updatePhaseStatus(ticketId, phase, 'success', output);
     await insertEvent({ ticketId, phase, eventType: 'phase_completed', payload: output });

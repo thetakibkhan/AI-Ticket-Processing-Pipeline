@@ -11,12 +11,23 @@ const CreateTicketBody = z.object({
   body: z.string({ error: 'body is required' }).trim().min(1, 'body is required'),
 });
 
+function badRequest(res: Response, errors: string[]): void {
+  res.status(400).json({ errors });
+}
+
+function notFound(res: Response, message: string): void {
+  res.status(404).json({ errors: [message] });
+}
+
+function serverError(res: Response, message: string): void {
+  res.status(500).json({ errors: [message] });
+}
+
 export async function createTicketHandler(req: Request, res: Response): Promise<void> {
   const parsed = CreateTicketBody.safeParse(req.body);
 
   if (!parsed.success) {
-    const errors = parsed.error.issues.map(i => i.message);
-    res.status(400).json({ errors });
+    badRequest(res, parsed.error.issues.map(i => i.message));
     return;
   }
 
@@ -32,7 +43,7 @@ export async function createTicketHandler(req: Request, res: Response): Promise<
     });
   } catch (err) {
     logger.error({ err }, 'failed to create ticket');
-    res.status(500).json({ error: 'Failed to create ticket. Please try again.' });
+    serverError(res, 'Failed to create ticket. Please try again.');
   }
 }
 
@@ -42,7 +53,7 @@ export async function getTicketHandler(req: Request, res: Response): Promise<voi
   try {
     const ticket = await getTicketById(id!);
     if (!ticket) {
-      res.status(404).json({ error: 'Ticket not found' });
+      notFound(res, 'Ticket not found');
       return;
     }
 
@@ -66,6 +77,6 @@ export async function getTicketHandler(req: Request, res: Response): Promise<voi
     });
   } catch (err) {
     logger.error({ ticketId: id, err }, 'failed to fetch ticket');
-    res.status(500).json({ error: 'Failed to fetch ticket. Please try again.' });
+    serverError(res, 'Failed to fetch ticket. Please try again.');
   }
 }
