@@ -10,6 +10,7 @@ import { getTicketById, updateTicketStatus } from '../repositories/ticketRepo.js
 import { getPhase, insertPhase, updatePhaseStatus, type PhaseType } from '../repositories/phaseRepo.js';
 import { insertEvent } from '../repositories/eventRepo.js';
 import { triageTicket, draftResolution, ZodValidationError, Phase1Schema, type Phase1Output } from '../adapters/aiAdapter.js';
+import { emitTicketStarted, emitTicketProgress, emitTicketCompleted, emitTicketFailed } from '../sockets/emitter.js';
 import { z } from 'zod';
 
 if (!process.env['SQS_QUEUE_URL']) throw new Error('SQS_QUEUE_URL is not set');
@@ -64,6 +65,7 @@ async function routeToDLQ(ticketId: string, phase: PhaseType, receiptHandle: str
   logger.warn({ ticketId, phase }, 'max attempts reached, routing to DLQ');
   await updateTicketStatus(ticketId, 'failed');
   await insertEvent({ ticketId, phase, eventType: 'dlq_routed' });
+  emitTicketFailed(ticketId, `phase ${phase} failed after max attempts`);
   await sqs.send(
     new SendMessageCommand({
       QueueUrl: DLQ_URL,
@@ -112,10 +114,12 @@ async function runPhase(
     logger.info({ ticketId, phase }, 'phase completed');
 
     if (phase === 'phase1') {
+      emitTicketProgress(ticketId);
       await deleteMessage(receiptHandle);
       await requeueTicket(ticketId);
     } else {
       await updateTicketStatus(ticketId, 'completed');
+      emitTicketCompleted(ticketId, phase1Output, output);
       await deleteMessage(receiptHandle);
     }
   } catch (err) {
@@ -176,6 +180,7 @@ async function processMessage(body: string, receiptHandle: string): Promise<void
   }
 
   await updateTicketStatus(ticketId, 'processing');
+  emitTicketStarted(ticketId);
 
   const phase1 = await getPhase(ticketId, 'phase1');
   const phase2 = await getPhase(ticketId, 'phase2');
