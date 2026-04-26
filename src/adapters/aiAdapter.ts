@@ -40,23 +40,6 @@ export class ZodValidationError extends Error {
   }
 }
 
-// ─── Portkey call options ─────────────────────────────────────────────────────
-
-type PortkeyCallParams = {
-  traceID?: string;
-  metadata?: Record<string, string>;
-};
-
-// ─── Portkey client ───────────────────────────────────────────────────────────
-
-if (!process.env['PORTKEY_API_KEY']) throw new Error('PORTKEY_API_KEY is not set');
-if (!process.env['PORTKEY_CONFIG_ID']) throw new Error('PORTKEY_CONFIG_ID is not set');
-
-const portkey = new Portkey({
-  apiKey: process.env['PORTKEY_API_KEY'],
-  config: process.env['PORTKEY_CONFIG_ID'],
-});
-
 // ─── Tool schemas ─────────────────────────────────────────────────────────────
 
 const phase1Tool = {
@@ -67,23 +50,11 @@ const phase1Tool = {
     parameters: {
       type: 'object',
       properties: {
-        category: {
-          type: 'string',
-          enum: ['billing', 'technical', 'account', 'feature_request', 'other'],
-        },
-        priority: {
-          type: 'string',
-          enum: ['critical', 'high', 'medium', 'low'],
-        },
-        sentiment: {
-          type: 'string',
-          enum: ['positive', 'neutral', 'negative', 'frustrated'],
-        },
+        category: { type: 'string', enum: ['billing', 'technical', 'account', 'feature_request', 'other'] },
+        priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
+        sentiment: { type: 'string', enum: ['positive', 'neutral', 'negative', 'frustrated'] },
         escalation: { type: 'boolean' },
-        routingTarget: {
-          type: 'string',
-          enum: ['tier1', 'tier2', 'billing_team', 'engineering', 'account_management'],
-        },
+        routingTarget: { type: 'string', enum: ['tier1', 'tier2', 'billing_team', 'engineering', 'account_management'] },
         summary: { type: 'string', minLength: 10, maxLength: 300 },
       },
       required: ['category', 'priority', 'sentiment', 'escalation', 'routingTarget', 'summary'],
@@ -101,133 +72,125 @@ const phase2Tool = {
       properties: {
         customerReply: { type: 'string', minLength: 50, maxLength: 2000 },
         internalNote: { type: 'string', minLength: 20, maxLength: 1000 },
-        nextActions: {
-          type: 'array',
-          items: { type: 'string' },
-          minItems: 1,
-          maxItems: 5,
-        },
+        nextActions: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 5 },
       },
       required: ['customerReply', 'internalNote', 'nextActions'],
     },
   },
 };
 
-// ─── Adapter functions ────────────────────────────────────────────────────────
+// ─── Portkey call options ─────────────────────────────────────────────────────
 
-export async function triageTicket(
-  ticket: TicketInput,
-  attempt: number,
-): Promise<Phase1Output> {
-  const start = Date.now();
+type PortkeyCallParams = {
+  traceID?: string;
+  metadata?: Record<string, string>;
+};
 
-  const response = await portkey.chat.completions.create(
-    {
+// ─── AIAdapter class ──────────────────────────────────────────────────────────
 
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a support ticket triage system. Analyze the ticket and call the submit_triage tool with your analysis.',
-        },
-        {
-          role: 'user',
-          content: `Subject: ${ticket.subject}\n\nBody: ${ticket.body}`,
-        },
-      ],
-      tools: [phase1Tool],
-      tool_choice: { type: 'function', function: { name: 'submit_triage' } },
-    },
-    {
-      traceID: ticket.id,
-      metadata: { ticketId: ticket.id, phase: 'phase1', attempt: String(attempt) },
-    } satisfies PortkeyCallParams,
-  );
+export class AIAdapter {
+  private readonly client: Portkey;
 
-  const durationMs = Date.now() - start;
-  const toolCall = response.choices[0]?.message?.tool_calls?.[0];
+  constructor() {
+    if (!process.env['PORTKEY_API_KEY']) throw new Error('PORTKEY_API_KEY is not set');
+    if (!process.env['PORTKEY_CONFIG_ID']) throw new Error('PORTKEY_CONFIG_ID is not set');
 
-  if (!toolCall || toolCall.type !== 'function') {
-    throw new Error('AI returned no tool call for phase1');
+    this.client = new Portkey({
+      apiKey: process.env['PORTKEY_API_KEY'],
+      config: process.env['PORTKEY_CONFIG_ID'],
+    });
   }
 
-  const raw: unknown = JSON.parse(toolCall.function.arguments);
-  const result = Phase1Schema.safeParse(raw);
+  async triageTicket(ticket: TicketInput, attempt: number): Promise<Phase1Output> {
+    const start = Date.now();
 
-  logger.info(
-    {
-      ticketId: ticket.id,
-      phase: 'phase1',
-      durationMs,
-      model: response.model,
-      promptTokens: response.usage?.prompt_tokens,
-      completionTokens: response.usage?.completion_tokens,
-    },
-    'AI call completed',
-  );
+    const response = await this.client.chat.completions.create(
+      {
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a support ticket triage system. Analyze the ticket and call the submit_triage tool with your analysis.',
+          },
+          {
+            role: 'user',
+            content: `Subject: ${ticket.subject}\n\nBody: ${ticket.body}`,
+          },
+        ],
+        tools: [phase1Tool],
+        tool_choice: { type: 'function', function: { name: 'submit_triage' } },
+      },
+      {
+        traceID: ticket.id,
+        metadata: { ticketId: ticket.id, phase: 'phase1', attempt: String(attempt) },
+      } satisfies PortkeyCallParams,
+    );
 
-  if (!result.success) {
-    throw new ZodValidationError('phase1', result.error.issues);
+    const durationMs = Date.now() - start;
+    const toolCall = response.choices[0]?.message?.tool_calls?.[0];
+
+    if (!toolCall || toolCall.type !== 'function') {
+      throw new Error('AI returned no tool call for phase1');
+    }
+
+    const raw: unknown = JSON.parse(toolCall.function.arguments);
+    const result = Phase1Schema.safeParse(raw);
+
+    logger.info(
+      { ticketId: ticket.id, phase: 'phase1', durationMs, model: response.model, promptTokens: response.usage?.prompt_tokens, completionTokens: response.usage?.completion_tokens },
+      'AI call completed',
+    );
+
+    if (!result.success) throw new ZodValidationError('phase1', result.error.issues);
+    return result.data;
   }
 
-  return result.data;
+  async draftResolution(ticket: TicketInput, triage: Phase1Output, attempt: number): Promise<Phase2Output> {
+    const start = Date.now();
+
+    const response = await this.client.chat.completions.create(
+      {
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a support response drafting system. Using the ticket and its triage analysis, call the submit_resolution_draft tool with a professional draft response.',
+          },
+          {
+            role: 'user',
+            content: `Subject: ${ticket.subject}\n\nBody: ${ticket.body}\n\nTriage Analysis:\n${JSON.stringify(triage, null, 2)}`,
+          },
+        ],
+        tools: [phase2Tool],
+        tool_choice: { type: 'function', function: { name: 'submit_resolution_draft' } },
+      },
+      {
+        traceID: ticket.id,
+        metadata: { ticketId: ticket.id, phase: 'phase2', attempt: String(attempt) },
+      } satisfies PortkeyCallParams,
+    );
+
+    const durationMs = Date.now() - start;
+    const toolCall = response.choices[0]?.message?.tool_calls?.[0];
+
+    if (!toolCall || toolCall.type !== 'function') {
+      throw new Error('AI returned no tool call for phase2');
+    }
+
+    const raw: unknown = JSON.parse(toolCall.function.arguments);
+    const result = Phase2Schema.safeParse(raw);
+
+    logger.info(
+      { ticketId: ticket.id, phase: 'phase2', durationMs, model: response.model, promptTokens: response.usage?.prompt_tokens, completionTokens: response.usage?.completion_tokens },
+      'AI call completed',
+    );
+
+    if (!result.success) throw new ZodValidationError('phase2', result.error.issues);
+    return result.data;
+  }
 }
 
-export async function draftResolution(
-  ticket: TicketInput,
-  triage: Phase1Output,
-  attempt: number,
-): Promise<Phase2Output> {
-  const start = Date.now();
+// ─── Singleton instance + named exports for backward compatibility ────────────
 
-  const response = await portkey.chat.completions.create(
-    {
+const adapter = new AIAdapter();
 
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a support response drafting system. Using the ticket and its triage analysis, call the submit_resolution_draft tool with a professional draft response.',
-        },
-        {
-          role: 'user',
-          content: `Subject: ${ticket.subject}\n\nBody: ${ticket.body}\n\nTriage Analysis:\n${JSON.stringify(triage, null, 2)}`,
-        },
-      ],
-      tools: [phase2Tool],
-      tool_choice: { type: 'function', function: { name: 'submit_resolution_draft' } },
-    },
-    {
-      traceID: ticket.id,
-      metadata: { ticketId: ticket.id, phase: 'phase2', attempt: String(attempt) },
-    } satisfies PortkeyCallParams,
-  );
-
-  const durationMs = Date.now() - start;
-  const toolCall = response.choices[0]?.message?.tool_calls?.[0];
-
-  if (!toolCall || toolCall.type !== 'function') {
-    throw new Error('AI returned no tool call for phase2');
-  }
-
-  const raw: unknown = JSON.parse(toolCall.function.arguments);
-  const result = Phase2Schema.safeParse(raw);
-
-  logger.info(
-    {
-      ticketId: ticket.id,
-      phase: 'phase2',
-      durationMs,
-      model: response.model,
-      promptTokens: response.usage?.prompt_tokens,
-      completionTokens: response.usage?.completion_tokens,
-    },
-    'AI call completed',
-  );
-
-  if (!result.success) {
-    throw new ZodValidationError('phase2', result.error.issues);
-  }
-
-  return result.data;
-}
+export const triageTicket = adapter.triageTicket.bind(adapter);
+export const draftResolution = adapter.draftResolution.bind(adapter);
