@@ -47,8 +47,8 @@ export async function createTicketHandler(req: Request, res: Response): Promise<
   }
 }
 
-export async function getTicketHandler(req: Request, res: Response): Promise<void> {
-  const { id } = req.params;
+export async function getTicketHandler(req: Request<{ id: string }>, res: Response): Promise<void> {
+  const id = req.params['id'];
 
   try {
     const ticket = await getTicketById(id!);
