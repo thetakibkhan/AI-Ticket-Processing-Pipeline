@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: ticket-postgres
+    environment:
+      POSTGRES_USER: takib
+      POSTGRES_PASSWORD: takib
+      POSTGRES_DB: ticket_processing
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U takib -d ticket_processing"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:3.8
+    container_name: ticket-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sqs
+      - DEFAULT_REGION=us-east-1
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal sqs list-queues"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  queues-init:
+    image: amazon/aws-cli
+    container_name: ticket-queues-init
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+    entrypoint: >
+      /bin/sh -c "
+        aws --endpoint-url http://localstack:4566 sqs create-queue --queue-name ticket-processing-dlq &&
+        aws --endpoint-url http://localstack:4566 sqs create-queue --queue-name ticket-processing-queue
+          --attributes '{\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"arn:aws:sqs:us-east-1:000000000000:ticket-processing-dlq\\\",\\\"maxReceiveCount\\\":\\\"3\\\"}\"}' &&
+        echo 'Queues created.'
+      "
+    restart: on-failure
+
+volumes:
+  postgres_data:
