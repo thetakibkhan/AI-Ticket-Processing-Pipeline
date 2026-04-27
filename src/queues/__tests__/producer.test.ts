@@ -9,7 +9,7 @@ import sqs from '../../lib/sqs.js';
 
 const QUEUE_URL = process.env['SQS_QUEUE_URL']!;
 
-async function drainQueue(queueUrl: string): Promise<void> {
+async function drainVisible(queueUrl: string): Promise<void> {
   while (true) {
     const { Messages } = await sqs.send(
       new ReceiveMessageCommand({ QueueUrl: queueUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: 0 }),
@@ -18,6 +18,18 @@ async function drainQueue(queueUrl: string): Promise<void> {
     await Promise.all(
       Messages.map(m => sqs.send(new DeleteMessageCommand({ QueueUrl: queueUrl, ReceiptHandle: m.ReceiptHandle! }))),
     );
+  }
+}
+
+async function drainQueue(queueUrl: string): Promise<void> {
+  await drainVisible(queueUrl);
+  const { Attributes } = await sqs.send(
+    new GetQueueAttributesCommand({ QueueUrl: queueUrl, AttributeNames: ['ApproximateNumberOfMessagesNotVisible'] }),
+  );
+  const inFlight = Number(Attributes?.['ApproximateNumberOfMessagesNotVisible'] ?? '0');
+  if (inFlight > 0) {
+    await new Promise(r => setTimeout(r, 6000));
+    await drainVisible(queueUrl);
   }
 }
 

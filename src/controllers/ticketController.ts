@@ -1,15 +1,10 @@
 import { type Request, type Response } from 'express';
-import { z } from 'zod';
-import { createTicket } from '../services/ticketService.js';
+import { createTicket, createTicketRecord, enqueueTicket } from '../services/ticketService.js';
 import { getTicketById } from '../repositories/ticketRepo.js';
 import { getPhase } from '../repositories/phaseRepo.js';
 import { getEvents } from '../repositories/eventRepo.js';
 import logger from '../lib/logger.js';
-
-const CreateTicketBody = z.object({
-  subject: z.string({ error: 'subject is required' }).trim().min(1, 'subject is required'),
-  body: z.string({ error: 'body is required' }).trim().min(1, 'body is required'),
-});
+import { CreateTicketBody } from '../schemas/ticketSchemas.js';
 
 function badRequest(res: Response, errors: string[]): void {
   res.status(400).json({ errors });
@@ -44,6 +39,39 @@ export async function createTicketHandler(req: Request, res: Response): Promise<
   } catch (err) {
     logger.error({ err }, 'failed to create ticket');
     serverError(res, 'Failed to create ticket. Please try again.');
+  }
+}
+
+export async function createTicketRecordHandler(req: Request, res: Response): Promise<void> {
+  const parsed = CreateTicketBody.safeParse(req.body);
+
+  if (!parsed.success) {
+    badRequest(res, parsed.error.issues.map(i => i.message));
+    return;
+  }
+
+  const { subject, body } = parsed.data;
+
+  try {
+    const ticket = await createTicketRecord(subject, body);
+    logger.info({ ticketId: ticket.id }, 'ticket record created');
+    res.status(201).json({ ticketId: ticket.id });
+  } catch (err) {
+    logger.error({ err }, 'failed to create ticket record');
+    serverError(res, 'Failed to create ticket. Please try again.');
+  }
+}
+
+export async function enqueueTicketHandler(req: Request<{ id: string }>, res: Response): Promise<void> {
+  const id = req.params['id'];
+
+  try {
+    await enqueueTicket(id!);
+    logger.info({ ticketId: id }, 'ticket enqueued');
+    res.status(202).json({ ticketId: id, status: 'queued' });
+  } catch (err) {
+    logger.error({ ticketId: id, err }, 'failed to enqueue ticket');
+    serverError(res, 'Failed to enqueue ticket. Please try again.');
   }
 }
 

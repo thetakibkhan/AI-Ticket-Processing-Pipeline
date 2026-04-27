@@ -4,13 +4,13 @@ import {
   DeleteMessageCommand,
   SendMessageCommand,
 } from '@aws-sdk/client-sqs';
-import { z } from 'zod';
 import sqs from '../lib/sqs.js';
 import logger from '../lib/logger.js';
 import { getTicketById, updateTicketStatus } from '../repositories/ticketRepo.js';
 import { getPhase, insertPhase, updatePhaseStatus, type PhaseType } from '../repositories/phaseRepo.js';
 import { insertEvent } from '../repositories/eventRepo.js';
 import { triageTicket, draftResolution, ZodValidationError, Phase1Schema, type Phase1Output } from '../adapters/aiAdapter.js';
+import { MessageSchema } from '../schemas/workerSchemas.js';
 import { emitTicketStarted, emitTicketProgress, emitTicketCompleted, emitTicketFailed } from '../sockets/emitter.js';
 
 if (!process.env['SQS_QUEUE_URL']) throw new Error('SQS_QUEUE_URL is not set');
@@ -25,8 +25,6 @@ const WORKER_CONFIG = {
   shutdownTimeoutMs: 60_000,
   sqsMaxDelaySeconds: 900,
 } as const;
-
-const MessageSchema = z.object({ ticketId: z.string().uuid() });
 
 function calculateBackoffSeconds(attempts: number): number {
   const jitterMs = Math.floor(Math.random() * 500);
@@ -98,6 +96,7 @@ class TicketWorker {
     await updatePhaseStatus(ticketId, phase, 'started');
     await insertEvent({ ticketId, phase, eventType: 'phase_started' });
     logger.info({ ticketId, phase }, 'phase started');
+    emitTicketStarted(ticketId, phase);
 
     const phaseAttempt = phaseRow.attempts + 1;
     const ticketInput = { id: ticketId, subject: ticket.subject, body: ticket.body };
@@ -116,7 +115,7 @@ class TicketWorker {
       logger.info({ ticketId, phase }, 'phase completed');
 
       if (phase === 'phase1') {
-        emitTicketProgress(ticketId);
+        emitTicketProgress(ticketId, phase);
         await this.deleteMessage(receiptHandle);
         await this.requeueTicket(ticketId);
       } else {
@@ -174,7 +173,6 @@ class TicketWorker {
     }
 
     await updateTicketStatus(ticketId, 'processing');
-    emitTicketStarted(ticketId);
 
     const phase1 = await getPhase(ticketId, 'phase1');
     const phase2 = await getPhase(ticketId, 'phase2');
@@ -230,7 +228,7 @@ class TicketWorker {
   }
 }
 
-// ─── Singleton instance ───────────────────────────────────────────────────────
+
 
 const worker = new TicketWorker();
 

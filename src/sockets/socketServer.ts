@@ -14,13 +14,15 @@ export function initIO(httpServer: HttpServer): Server {
   io.on('connection', (socket) => {
     logger.info({ socketId: socket.id }, 'client connected');
 
-    socket.on('join', (ticketId: string) => {
+    socket.on('join', (ticketId: string, ack?: () => void) => {
       if (typeof ticketId !== 'string' || !UUID_REGEX.test(ticketId)) {
         logger.warn({ socketId: socket.id, ticketId }, 'invalid ticketId on join, ignoring');
         return;
       }
-      void socket.join(`ticket:${ticketId}`);
-      logger.info({ socketId: socket.id, ticketId }, 'client joined room');
+      const joined = socket.join(`ticket:${ticketId}`);
+      const finish = () => { logger.info({ socketId: socket.id, ticketId }, 'client joined room'); ack?.(); };
+      if (joined instanceof Promise) void joined.then(finish);
+      else finish();
     });
 
     socket.on('disconnect', () => {

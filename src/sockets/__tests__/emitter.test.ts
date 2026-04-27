@@ -16,19 +16,19 @@ beforeEach(() => {
 });
 
 describe('emitTicketStarted', () => {
-  it('emits to correct room with ticketId and timestamp', () => {
-    emitTicketStarted('ticket-123');
+  it('emits to correct room with ticketId, phase, and timestamp', () => {
+    emitTicketStarted('ticket-123', 'phase1');
     expect(mockTo).toHaveBeenCalledWith('ticket:ticket-123');
     expect(mockEmit).toHaveBeenCalledWith(
       'ticket.started',
-      expect.objectContaining({ ticketId: 'ticket-123', timestamp: expect.any(String) }),
+      expect.objectContaining({ ticketId: 'ticket-123', phase: 'phase1', timestamp: expect.any(String) }),
     );
   });
 });
 
 describe('emitTicketProgress', () => {
   it('emits to correct room with completedPhase', () => {
-    emitTicketProgress('ticket-123');
+    emitTicketProgress('ticket-123', 'phase1');
     expect(mockTo).toHaveBeenCalledWith('ticket:ticket-123');
     expect(mockEmit).toHaveBeenCalledWith(
       'ticket.progress',
@@ -77,7 +77,7 @@ describe('emitTicketFailed', () => {
 
 describe('timestamp', () => {
   it('timestamp is valid ISO string', () => {
-    emitTicketStarted('ticket-123');
+    emitTicketStarted('ticket-123', 'phase1');
     const payload = mockEmit.mock.calls[0]?.[1] as { timestamp: string };
     expect(() => new Date(payload.timestamp)).not.toThrow();
     expect(new Date(payload.timestamp).toISOString()).toBe(payload.timestamp);
@@ -86,14 +86,14 @@ describe('timestamp', () => {
 
 describe('room routing', () => {
   it('each ticketId routes to its own room', () => {
-    emitTicketStarted('aaa');
-    emitTicketStarted('bbb');
+    emitTicketStarted('aaa', 'phase1');
+    emitTicketStarted('bbb', 'phase1');
     expect(mockTo).toHaveBeenNthCalledWith(1, 'ticket:aaa');
     expect(mockTo).toHaveBeenNthCalledWith(2, 'ticket:bbb');
   });
 
   it('uses ticket: prefix on room name', () => {
-    emitTicketStarted('xyz');
+    emitTicketStarted('xyz', 'phase1');
     expect(mockTo).toHaveBeenCalledWith('ticket:xyz');
     expect(mockTo).not.toHaveBeenCalledWith('xyz');
   });
@@ -103,7 +103,7 @@ describe('error handling', () => {
   it('does not throw if getIO throws', async () => {
     const { getIO } = await import('../socketServer.js');
     vi.mocked(getIO).mockImplementationOnce(() => { throw new Error('not initialized'); });
-    expect(() => emitTicketStarted('ticket-123')).not.toThrow();
+    expect(() => emitTicketStarted('ticket-123', 'phase1')).not.toThrow();
   });
 
   it('does not throw if emit throws', async () => {
@@ -111,14 +111,14 @@ describe('error handling', () => {
     vi.mocked(getIO).mockImplementationOnce(() => ({
       to: () => ({ emit: () => { throw new Error('socket write error'); } }),
     }) as never);
-    expect(() => emitTicketStarted('ticket-123')).not.toThrow();
+    expect(() => emitTicketStarted('ticket-123', 'phase1')).not.toThrow();
   });
 
   it('other events still work after one emit failure', async () => {
     const { getIO } = await import('../socketServer.js');
     vi.mocked(getIO).mockImplementationOnce(() => { throw new Error('fail'); });
-    emitTicketStarted('ticket-123'); // fails silently
-    emitTicketProgress('ticket-123'); // must still work
+    emitTicketStarted('ticket-123', 'phase1'); // fails silently
+    emitTicketProgress('ticket-123', 'phase1'); // must still work
     expect(mockEmit).toHaveBeenCalledWith('ticket.progress', expect.any(Object));
   });
 });

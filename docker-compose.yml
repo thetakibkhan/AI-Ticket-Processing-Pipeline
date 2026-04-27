@@ -44,8 +44,9 @@ services:
     entrypoint: >
       /bin/sh -c "
         aws --endpoint-url http://localstack:4566 sqs create-queue --queue-name ticket-processing-dlq &&
-        aws --endpoint-url http://localstack:4566 sqs create-queue --queue-name ticket-processing-queue
-          --attributes '{\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"arn:aws:sqs:us-east-1:000000000000:ticket-processing-dlq\\\",\\\"maxReceiveCount\\\":\\\"3\\\"}\"}' &&
+        aws --endpoint-url http://localstack:4566 sqs create-queue --queue-name ticket-processing-queue --attributes '{\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"arn:aws:sqs:us-east-1:000000000000:ticket-processing-dlq\\\",\\\"maxReceiveCount\\\":\\\"3\\\"}\"}' &&
+        aws --endpoint-url http://localstack:4566 sqs set-queue-attributes --queue-url http://localstack:4566/000000000000/ticket-processing-dlq --attributes VisibilityTimeout=5 &&
+        aws --endpoint-url http://localstack:4566 sqs set-queue-attributes --queue-url http://localstack:4566/000000000000/ticket-processing-queue --attributes VisibilityTimeout=5 &&
         echo 'Queues created.'
       "
     restart: on-failure

@@ -25,15 +25,21 @@ async function retryEnqueue(ticketId: string): Promise<void> {
   }
 }
 
-export async function createTicket(subject: string, body: string): Promise<Ticket> {
-  const ticket = await insertTicket({ subject, body });
+export async function createTicketRecord(subject: string, body: string): Promise<Ticket> {
+  return insertTicket({ subject, body });
+}
 
+export async function enqueueTicket(ticketId: string): Promise<void> {
   try {
-    await sendMessage(ticket.id);
+    await sendMessage(ticketId);
   } catch (err) {
-    logger.warn({ ticketId: ticket.id, err }, 'initial sqs enqueue failed, starting background retries');
-    void retryEnqueue(ticket.id);
+    logger.warn({ ticketId, err }, 'initial sqs enqueue failed, starting background retries');
+    void retryEnqueue(ticketId);
   }
+}
 
+export async function createTicket(subject: string, body: string): Promise<Ticket> {
+  const ticket = await createTicketRecord(subject, body);
+  await enqueueTicket(ticket.id);
   return ticket;
 }

@@ -16,12 +16,12 @@ function emit(ticketId: string, event: string, payload: Record<string, unknown>)
   }
 }
 
-export function emitTicketStarted(ticketId: string): void {
-  emit(ticketId, TICKET_EVENTS.STARTED, {});
+export function emitTicketStarted(ticketId: string, phase: string): void {
+  emit(ticketId, TICKET_EVENTS.STARTED, { phase });
 }
 
-export function emitTicketProgress(ticketId: string): void {
-  emit(ticketId, TICKET_EVENTS.PROGRESS, { completedPhase: 'phase1' });
+export function emitTicketProgress(ticketId: string, completedPhase: string): void {
+  emit(ticketId, TICKET_EVENTS.PROGRESS, { completedPhase });
 }
 
 export function emitTicketCompleted(ticketId: string, phase1Output: unknown, phase2Output: unknown): void {

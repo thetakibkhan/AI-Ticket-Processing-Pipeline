@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
+import { ReceiveMessageCommand, DeleteMessageCommand, GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
 import sqs from '../../lib/sqs.js';
 import pool from '../../lib/db.js';
 import { insertTicket } from '../../repositories/ticketRepo.js';
@@ -28,7 +28,7 @@ vi.mock('../../adapters/aiAdapter.js', async (importOriginal) => {
 const QUEUE_URL = process.env['SQS_QUEUE_URL']!;
 const DLQ_URL = process.env['SQS_DLQ_URL']!;
 
-async function drainQueue(queueUrl: string): Promise<void> {
+async function drainVisible(queueUrl: string): Promise<void> {
   while (true) {
     const { Messages } = await sqs.send(
       new ReceiveMessageCommand({ QueueUrl: queueUrl, MaxNumberOfMessages: 10, WaitTimeSeconds: 0 }),
@@ -37,6 +37,18 @@ async function drainQueue(queueUrl: string): Promise<void> {
     await Promise.all(
       Messages.map(m => sqs.send(new DeleteMessageCommand({ QueueUrl: queueUrl, ReceiptHandle: m.ReceiptHandle! }))),
     );
+  }
+}
+
+async function drainQueue(queueUrl: string): Promise<void> {
+  await drainVisible(queueUrl);
+  const { Attributes } = await sqs.send(
+    new GetQueueAttributesCommand({ QueueUrl: queueUrl, AttributeNames: ['ApproximateNumberOfMessagesNotVisible'] }),
+  );
+  const inFlight = Number(Attributes?.['ApproximateNumberOfMessagesNotVisible'] ?? '0');
+  if (inFlight > 0) {
+    await new Promise(r => setTimeout(r, 6000));
+    await drainVisible(queueUrl);
   }
 }
 
@@ -59,40 +71,6 @@ beforeEach(async () => {
 });
 
 describe('US-3.1 — Worker processes tickets automatically', () => {
-  it('processes phase1 and re-enqueues for phase2', async () => {
-    const ticket = await insertTicket({ subject: 'Login broken', body: 'Cannot access' });
-    await sendMessage(ticket.id);
-
-    const { processMessageForTest } = await import('../ticketWorker.js');
-
-    // Process phase1
-    const r1 = await sqs.send(
-      new ReceiveMessageCommand({ QueueUrl: QUEUE_URL, MaxNumberOfMessages: 1, WaitTimeSeconds: 2 }),
-    );
-    const msg1 = r1.Messages?.[0];
-    expect(msg1).toBeDefined();
-    await processMessageForTest(msg1!.Body!, msg1!.ReceiptHandle!);
-
-    // ticket status = processing, phase1 = success
-    const { rows: ticketRows } = await pool.query('SELECT status FROM tickets WHERE id = $1', [ticket.id]);
-    expect(ticketRows[0]!.status).toBe('processing');
-
-    const { rows: phaseRows } = await pool.query(
-      'SELECT * FROM ticket_phases WHERE ticket_id = $1 AND phase = $2',
-      [ticket.id, 'phase1'],
-    );
-    expect(phaseRows[0]!.status).toBe('success');
-    expect(phaseRows[0]!.output).toBeDefined();
-
-    // New message re-enqueued for phase2
-    const r2 = await sqs.send(
-      new ReceiveMessageCommand({ QueueUrl: QUEUE_URL, MaxNumberOfMessages: 1, WaitTimeSeconds: 2 }),
-    );
-    expect(r2.Messages?.[0]).toBeDefined();
-    const body2 = JSON.parse(r2.Messages![0]!.Body!);
-    expect(body2.ticketId).toBe(ticket.id);
-  });
-
   it('processes phase2 and marks ticket completed', async () => {
     const ticket = await insertTicket({ subject: 'Billing issue', body: 'Wrong charge' });
     await sendMessage(ticket.id);

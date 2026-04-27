@@ -1,24 +1,66 @@
 import { io } from 'socket.io-client';
 
-const TICKET_ID = process.argv[2];
+const args = process.argv.slice(2);
 
-if (!TICKET_ID) {
-  console.error('Usage: node --loader ts-node/esm --no-warnings test-socket.ts <ticketId>');
-  process.exit(1);
+// Mode A: watch existing ticket  →  test-socket.ts <ticketId>
+// Mode B: create + watch         →  test-socket.ts --create <subject> <body>
+const createMode = args[0] === '--create';
+
+async function post(path: string, body?: unknown): Promise<unknown> {
+  const res = await fetch(`http://localhost:3000${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+  return res.json();
 }
 
 const socket = io('http://localhost:3000');
 
-socket.on('connect', () => {
+socket.on('connect', async () => {
   console.log('connected:', socket.id);
-  socket.emit('join', TICKET_ID);
-  console.log(`joined room ticket:${TICKET_ID} — waiting for events...`);
+
+  let ticketId: string;
+
+  if (createMode) {
+    const subject = args[1] ?? '';
+    const body    = args[2] ?? '';
+    if (!subject || !body) {
+      console.error('Usage: test-socket.ts --create <subject> <body>');
+      process.exit(1);
+    }
+
+    // Step 1: create DB record (no SQS yet)
+    const created = await post('/tickets/record', { subject, body }) as { ticketId: string };
+    ticketId = created.ticketId;
+    console.log('ticketId:', ticketId);
+
+    // Step 2: join room and wait for server ack (socket is now in room)
+    await socket.emitWithAck('join', ticketId);
+    console.log(`joined room ticket:${ticketId} — waiting for events...`);
+
+    // Step 3: enqueue to SQS — worker picks up AFTER socket is in room
+    await post(`/tickets/${ticketId}/enqueue`);
+  } else {
+    ticketId = args[0] ?? '';
+    if (!ticketId) {
+      console.error('Usage: test-socket.ts <ticketId>');
+      process.exit(1);
+    }
+    await socket.emitWithAck('join', ticketId);
+    console.log(`joined room ticket:${ticketId} — waiting for events...`);
+  }
 });
 
-socket.on('ticket.started',   (d) => console.log('[started]  ', d));
-socket.on('ticket.progress',  (d) => console.log('[progress] ', d));
-socket.on('ticket.completed', (d) => console.log('[completed]', d));
-socket.on('ticket.failed',    (d) => console.log('[failed]   ', d));
+socket.on('ticket.started',   (d: { phase: string; timestamp: string }) =>
+  console.log(`${d.timestamp}  ${d.phase} started`));
+socket.on('ticket.progress',  (d: { completedPhase: string; timestamp: string }) =>
+  console.log(`${d.timestamp}  ${d.completedPhase} completed`));
+socket.on('ticket.completed', (d: { timestamp: string }) =>
+  console.log(`${d.timestamp}  ticket completed`));
+socket.on('ticket.failed',    (d: { reason: string; timestamp: string }) =>
+  console.log(`${d.timestamp}  ticket failed: ${d.reason}`));
 
 socket.on('disconnect', () => console.log('disconnected'));
 socket.on('connect_error', (err) => console.error('connection error:', err.message));
