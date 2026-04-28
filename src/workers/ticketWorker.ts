@@ -236,7 +236,7 @@ export async function processMessageForTest(body: string, receiptHandle: string)
   return worker.processMessage(body, receiptHandle);
 }
 
-// Only start the poll loop when run directly, not when imported by tests
-if (process.env['NODE_ENV'] !== 'test') {
+// Only start the poll loop outside test runners
+if (process.env['NODE_ENV'] !== 'test' && !process.env['VITEST']) {
   worker.poll();
 }

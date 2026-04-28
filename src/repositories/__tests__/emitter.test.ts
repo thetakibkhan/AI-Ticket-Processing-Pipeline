@@ -3,12 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockEmit = vi.fn();
 const mockTo = vi.fn(() => ({ emit: mockEmit }));
 
-vi.mock('../socketServer.js', () => ({
+vi.mock('../../sockets/socketServer.js', () => ({
   getIO: vi.fn(() => ({ to: mockTo })),
 }));
 
 const { emitTicketStarted, emitTicketProgress, emitTicketCompleted, emitTicketFailed } =
-  await import('../emitter.js');
+  await import('../../sockets/emitter.js');
 
 beforeEach(() => {
   mockEmit.mockClear();
@@ -101,13 +101,13 @@ describe('room routing', () => {
 
 describe('error handling', () => {
   it('does not throw if getIO throws', async () => {
-    const { getIO } = await import('../socketServer.js');
+    const { getIO } = await import('../../sockets/socketServer.js');
     vi.mocked(getIO).mockImplementationOnce(() => { throw new Error('not initialized'); });
     expect(() => emitTicketStarted('ticket-123', 'phase1')).not.toThrow();
   });
 
   it('does not throw if emit throws', async () => {
-    const { getIO } = await import('../socketServer.js');
+    const { getIO } = await import('../../sockets/socketServer.js');
     vi.mocked(getIO).mockImplementationOnce(() => ({
       to: () => ({ emit: () => { throw new Error('socket write error'); } }),
     }) as never);
@@ -115,7 +115,7 @@ describe('error handling', () => {
   });
 
   it('other events still work after one emit failure', async () => {
-    const { getIO } = await import('../socketServer.js');
+    const { getIO } = await import('../../sockets/socketServer.js');
     vi.mocked(getIO).mockImplementationOnce(() => { throw new Error('fail'); });
     emitTicketStarted('ticket-123', 'phase1'); // fails silently
     emitTicketProgress('ticket-123', 'phase1'); // must still work

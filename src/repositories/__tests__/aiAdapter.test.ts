@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ZodValidationError, type Phase1Output } from '../aiAdapter.js';
+import { ZodValidationError, type Phase1Output } from '../../adapters/aiAdapter.js';
 
 const mockCreate = vi.hoisted(() => vi.fn());
 
@@ -10,7 +10,7 @@ vi.mock('portkey-ai', () => {
   return { Portkey };
 });
 
-const { triageTicket, draftResolution } = await import('../aiAdapter.js');
+const { triageTicket, draftResolution } = await import('../../adapters/aiAdapter.js');
 
 const ticket = { id: 'ticket-123', subject: 'Cannot login', body: 'Getting 403 on admin panel' };
 
