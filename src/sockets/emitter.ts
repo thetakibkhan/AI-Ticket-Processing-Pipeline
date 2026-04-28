@@ -8,7 +8,9 @@ export const TICKET_EVENTS = {
   FAILED:    'ticket.failed',
 } as const;
 
-function emit(ticketId: string, event: string, payload: Record<string, unknown>): void {
+export type TicketEventType = typeof TICKET_EVENTS[keyof typeof TICKET_EVENTS];
+
+function emit(ticketId: string, event: TicketEventType, payload: Record<string, unknown>): void {
   try {
     getIO().to(`ticket:${ticketId}`).emit(event, { ticketId, ...payload, timestamp: new Date().toISOString() });
   } catch (err) {
