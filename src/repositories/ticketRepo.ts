@@ -26,6 +26,7 @@ export interface Queryable {
 }
 
 export interface ITicketRepository {
+  list(): Promise<Ticket[]>;
   getById(id: string): Promise<Ticket | null>;
   insert(input: InsertTicketInput): Promise<Ticket>;
   updateStatus(id: string, status: TicketStatus): Promise<void>;
@@ -33,6 +34,13 @@ export interface ITicketRepository {
 
 export class TicketRepository implements ITicketRepository {
   constructor(private readonly db: Queryable) {}
+
+  async list(): Promise<Ticket[]> {
+    const { rows } = await this.db.query<Ticket>(
+      `SELECT * FROM tickets ORDER BY created_at DESC`,
+    );
+    return rows;
+  }
 
   async getById(id: string): Promise<Ticket | null> {
     const { rows } = await this.db.query<Ticket>(
@@ -63,6 +71,7 @@ export class TicketRepository implements ITicketRepository {
 export const ticketRepository = new TicketRepository(pool);
 
 // Backward-compatible named exports — existing callers unchanged
+export const getTickets = () => ticketRepository.list();
 export const getTicketById = (id: string) => ticketRepository.getById(id);
 export const insertTicket = (input: InsertTicketInput) => ticketRepository.insert(input);
 export const updateTicketStatus = (id: string, status: TicketStatus) => ticketRepository.updateStatus(id, status);

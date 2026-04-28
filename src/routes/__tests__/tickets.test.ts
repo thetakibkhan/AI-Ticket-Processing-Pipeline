@@ -156,3 +156,37 @@ describe('US-2.2 — Support Team Can Check the Status of Any Ticket at Any Time
     expect(res.body).toHaveProperty('events');
   });
 });
+
+// ─── GET /tickets ─────────────────────────────────────────────────────────────
+
+describe('GET /tickets', () => {
+  it('returns empty list when there are no tickets', async () => {
+    const res = await request(app).get('/tickets');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ tickets: [] });
+  });
+
+  it('returns all tickets in descending created order', async () => {
+    const first = await request(app)
+      .post('/tickets/record')
+      .send({ subject: 'First', body: 'First body' });
+    const second = await request(app)
+      .post('/tickets/record')
+      .send({ subject: 'Second', body: 'Second body' });
+
+    const res = await request(app).get('/tickets');
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.tickets)).toBe(true);
+    expect(res.body.tickets).toHaveLength(2);
+    expect(res.body.tickets[0].ticketId).toBe(second.body.ticketId);
+    expect(res.body.tickets[1].ticketId).toBe(first.body.ticketId);
+    expect(res.body.tickets[0]).toMatchObject({
+      status: 'queued',
+      subject: 'Second',
+      body: 'Second body',
+    });
+    expect(res.body.tickets[0].createdAt).toBeDefined();
+  });
+});

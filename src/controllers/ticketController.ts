@@ -1,6 +1,6 @@
 import { type Request, type Response } from 'express';
 import { createTicket, createTicketRecord, enqueueTicket } from '../services/ticketService.js';
-import { getTicketById } from '../repositories/ticketRepo.js';
+import { getTicketById, getTickets } from '../repositories/ticketRepo.js';
 import { getPhase } from '../repositories/phaseRepo.js';
 import { getEvents } from '../repositories/eventRepo.js';
 import logger from '../lib/logger.js';
@@ -106,5 +106,24 @@ export async function getTicketHandler(req: Request<{ id: string }>, res: Respon
   } catch (err) {
     logger.error({ ticketId: id, err }, 'failed to fetch ticket');
     serverError(res, 'Failed to fetch ticket. Please try again.');
+  }
+}
+
+export async function getTicketsHandler(_req: Request, res: Response): Promise<void> {
+  try {
+    const tickets = await getTickets();
+
+    res.status(200).json({
+      tickets: tickets.map(ticket => ({
+        ticketId: ticket.id,
+        status: ticket.status,
+        subject: ticket.subject,
+        body: ticket.body,
+        createdAt: ticket.created_at,
+      })),
+    });
+  } catch (err) {
+    logger.error({ err }, 'failed to fetch tickets');
+    serverError(res, 'Failed to fetch tickets. Please try again.');
   }
 }
