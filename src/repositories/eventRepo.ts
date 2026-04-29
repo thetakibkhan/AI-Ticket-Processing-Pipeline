@@ -10,7 +10,8 @@ export type EventType =
   | 'phase_failed'
   | 'retry_scheduled'
   | 'fallback_triggered'
-  | 'dlq_routed';
+  | 'dlq_routed'
+  | 'manual_retry_triggered';
 
 export interface TicketEvent {
   id: string;

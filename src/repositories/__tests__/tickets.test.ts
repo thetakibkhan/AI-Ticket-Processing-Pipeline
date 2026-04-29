@@ -4,6 +4,7 @@ import app from '../../app.js';
 import pool from '../../lib/db.js';
 import { PurgeQueueCommand } from '@aws-sdk/client-sqs';
 import sqs from '../../lib/sqs.js';
+import { insertTicket, updateTicketStatus } from '../ticketRepo.js';
 
 const QUEUE_URL = process.env['SQS_QUEUE_URL']!;
 
@@ -168,25 +169,93 @@ describe('GET /tickets', () => {
   });
 
   it('returns all tickets in descending created order', async () => {
-    const first = await request(app)
-      .post('/tickets/record')
-      .send({ subject: 'First', body: 'First body' });
-    const second = await request(app)
-      .post('/tickets/record')
-      .send({ subject: 'Second', body: 'Second body' });
+    const first = await insertTicket({ subject: 'First', body: 'First body' });
+    const second = await insertTicket({ subject: 'Second', body: 'Second body' });
 
     const res = await request(app).get('/tickets');
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.tickets)).toBe(true);
     expect(res.body.tickets).toHaveLength(2);
-    expect(res.body.tickets[0].ticketId).toBe(second.body.ticketId);
-    expect(res.body.tickets[1].ticketId).toBe(first.body.ticketId);
+    expect(res.body.tickets[0].ticketId).toBe(second.id);
+    expect(res.body.tickets[1].ticketId).toBe(first.id);
     expect(res.body.tickets[0]).toMatchObject({
       status: 'queued',
       subject: 'Second',
       body: 'Second body',
     });
     expect(res.body.tickets[0].createdAt).toBeDefined();
+  });
+});
+
+// ─── POST /tickets/:id/replay ────────────────────────────────────────────────
+
+describe('POST /tickets/:id/replay', () => {
+  it('returns 404 for unknown ticket', async () => {
+    const res = await request(app).post('/tickets/00000000-0000-0000-0000-000000000000/replay');
+    expect(res.status).toBe(404);
+    expect(res.body.errors).toContain('Ticket not found');
+  });
+
+  it('returns 409 when ticket is not failed', async () => {
+    const ticket = await insertTicket({ subject: 'Not failed', body: 'Body' });
+    const res = await request(app).post(`/tickets/${ticket.id}/replay`);
+    expect(res.status).toBe(409);
+    expect(res.body.errors).toContain('Only failed tickets can be replayed');
+  });
+
+  it('resets only failed phases, marks ticket queued, and records manual retry event', async () => {
+    const ticket = await insertTicket({ subject: 'Replay me', body: 'Body' });
+    await updateTicketStatus(ticket.id, 'failed');
+
+    await pool.query(
+      `INSERT INTO ticket_phases (ticket_id, phase, status, attempts, output, started_at, completed_at)
+       VALUES
+         ($1, 'phase1', 'success', 1, $2::json, NOW(), NOW()),
+         ($1, 'phase2', 'failure', 3, $3::json, NOW(), NOW())`,
+      [ticket.id, JSON.stringify({ category: 'technical' }), JSON.stringify({ error: 'timed out' })],
+    );
+
+    const res = await request(app).post(`/tickets/${ticket.id}/replay`);
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ ticketId: ticket.id, status: 'queued' });
+
+    const { rows: ticketRows } = await pool.query(
+      `SELECT status FROM tickets WHERE id = $1`,
+      [ticket.id],
+    );
+    expect(ticketRows[0]!.status).toBe('queued');
+
+    const { rows: phases } = await pool.query(
+      `SELECT phase, status, attempts, output, started_at, completed_at
+       FROM ticket_phases
+       WHERE ticket_id = $1
+       ORDER BY phase`,
+      [ticket.id],
+    );
+
+    const phase1 = phases.find(p => p.phase === 'phase1');
+    const phase2 = phases.find(p => p.phase === 'phase2');
+
+    expect(phase1).toMatchObject({
+      phase: 'phase1',
+      status: 'success',
+      attempts: 1,
+    });
+    expect(phase2).toMatchObject({
+      phase: 'phase2',
+      status: 'started',
+      attempts: 0,
+      output: null,
+      started_at: null,
+      completed_at: null,
+    });
+
+    const { rows: events } = await pool.query(
+      `SELECT event_type, phase FROM ticket_events WHERE ticket_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [ticket.id],
+    );
+    expect(events[0]!.event_type).toBe('manual_retry_triggered');
+    expect(events[0]!.phase).toBe('phase2');
   });
 });

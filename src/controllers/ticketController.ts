@@ -1,5 +1,5 @@
 import { type Request, type Response } from 'express';
-import { createTicket, createTicketRecord, enqueueTicket } from '../services/ticketService.js';
+import { createTicket, replayTicket, ReplayTicketError } from '../services/ticketService.js';
 import { getTicketById, getTickets } from '../repositories/ticketRepo.js';
 import { getPhase } from '../repositories/phaseRepo.js';
 import { getEvents } from '../repositories/eventRepo.js';
@@ -42,36 +42,26 @@ export async function createTicketHandler(req: Request, res: Response): Promise<
   }
 }
 
-export async function createTicketRecordHandler(req: Request, res: Response): Promise<void> {
-  const parsed = CreateTicketBody.safeParse(req.body);
-
-  if (!parsed.success) {
-    badRequest(res, parsed.error.issues.map(i => i.message));
-    return;
-  }
-
-  const { subject, body } = parsed.data;
-
-  try {
-    const ticket = await createTicketRecord(subject, body);
-    logger.info({ ticketId: ticket.id }, 'ticket record created');
-    res.status(201).json({ ticketId: ticket.id });
-  } catch (err) {
-    logger.error({ err }, 'failed to create ticket record');
-    serverError(res, 'Failed to create ticket. Please try again.');
-  }
-}
-
-export async function enqueueTicketHandler(req: Request<{ id: string }>, res: Response): Promise<void> {
+export async function replayTicketHandler(req: Request<{ id: string }>, res: Response): Promise<void> {
   const id = req.params['id'];
 
   try {
-    await enqueueTicket(id!);
-    logger.info({ ticketId: id }, 'ticket enqueued');
-    res.status(202).json({ ticketId: id, status: 'queued' });
+    const replayed = await replayTicket(id!);
+    logger.info({ ticketId: id }, 'ticket replay requested');
+    res.status(202).json(replayed);
   } catch (err) {
-    logger.error({ ticketId: id, err }, 'failed to enqueue ticket');
-    serverError(res, 'Failed to enqueue ticket. Please try again.');
+    if (err instanceof ReplayTicketError) {
+      if (err.kind === 'not_found') {
+        notFound(res, err.message);
+        return;
+      }
+      if (err.kind === 'conflict') {
+        res.status(409).json({ errors: [err.message] });
+        return;
+      }
+    }
+    logger.error({ ticketId: id, err }, 'failed to replay ticket');
+    serverError(res, 'Failed to replay ticket. Please try again.');
   }
 }
 
