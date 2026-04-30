@@ -1,12 +1,6 @@
 import { SendMessageCommand } from '@aws-sdk/client-sqs';
-import sqs from '../lib/sqs.js';
+import sqs, { QUEUE_URL } from '../lib/sqs.js';
 import logger from '../lib/logger.js';
-
-if (!process.env['SQS_QUEUE_URL']) {
-  throw new Error('SQS_QUEUE_URL is not set');
-}
-
-const QUEUE_URL = process.env['SQS_QUEUE_URL'];
 
 export async function sendMessage(ticketId: string): Promise<void> {
   const command = new SendMessageCommand({

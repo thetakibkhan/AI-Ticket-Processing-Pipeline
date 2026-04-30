@@ -31,17 +31,13 @@ socket.on('connect', async () => {
       process.exit(1);
     }
 
-    // Step 1: create DB record (no SQS yet)
-    const created = await post('/tickets/record', { subject, body }) as { ticketId: string };
+    // Create + enqueue in one shot, then join room
+    const created = await post('/tickets', { subject, body }) as { ticketId: string };
     ticketId = created.ticketId;
     console.log('ticketId:', ticketId);
 
-    // Step 2: join room and wait for server ack (socket is now in room)
     await socket.emitWithAck('join', ticketId);
     console.log(`joined room ticket:${ticketId} — waiting for events...`);
-
-    // Step 3: enqueue to SQS — worker picks up AFTER socket is in room
-    await post(`/tickets/${ticketId}/enqueue`);
   } else {
     ticketId = args[0] ?? '';
     if (!ticketId) {

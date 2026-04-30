@@ -4,7 +4,7 @@ import {
   DeleteMessageCommand,
   SendMessageCommand,
 } from '@aws-sdk/client-sqs';
-import sqs from '../lib/sqs.js';
+import sqs, { QUEUE_URL, DLQ_URL } from '../lib/sqs.js';
 import logger from '../lib/logger.js';
 import { getTicketById, updateTicketStatus } from '../repositories/ticketRepo.js';
 import { getPhase, insertPhase, updatePhaseStatus, type PhaseType } from '../repositories/phaseRepo.js';
@@ -12,12 +12,6 @@ import { insertEvent } from '../repositories/eventRepo.js';
 import { triageTicket, draftResolution, ZodValidationError, Phase1Schema, type Phase1Output } from '../adapters/aiAdapter.js';
 import { MessageSchema } from '../schemas/workerSchemas.js';
 import { emitTicketStarted, emitTicketProgress, emitTicketCompleted, emitTicketFailed } from '../sockets/emitter.js';
-
-if (!process.env['SQS_QUEUE_URL']) throw new Error('SQS_QUEUE_URL is not set');
-if (!process.env['SQS_DLQ_URL']) throw new Error('SQS_DLQ_URL is not set');
-
-const QUEUE_URL = process.env['SQS_QUEUE_URL'];
-const DLQ_URL = process.env['SQS_DLQ_URL'];
 
 const WORKER_CONFIG = {
   maxAttempts: 3,
