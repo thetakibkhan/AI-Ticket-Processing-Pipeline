@@ -155,7 +155,16 @@ class TicketWorker {
   }
 
   async processMessage(body: string, receiptHandle: string): Promise<void> {
-    const parsed = MessageSchema.safeParse(JSON.parse(body));
+    let rawMessage: unknown;
+    try {
+      rawMessage = JSON.parse(body);
+    } catch {
+      logger.warn({ body }, 'malformed JSON body, discarding');
+      await this.deleteMessage(receiptHandle);
+      return;
+    }
+
+    const parsed = MessageSchema.safeParse(rawMessage);
 
     if (!parsed.success) {
       logger.warn({ body }, 'malformed message, discarding');

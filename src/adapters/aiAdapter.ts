@@ -26,8 +26,17 @@ export class ZodValidationError extends Error {
 
 // ─── Tool schemas ─────────────────────────────────────────────────────────────
 
-const phase1Tool = {
-  type: 'function' as const,
+type AITool = {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+};
+
+const phase1Tool: AITool = {
+  type: 'function',
   function: {
     name: 'submit_triage',
     description: 'Submit structured triage analysis for a support ticket',
@@ -46,8 +55,8 @@ const phase1Tool = {
   },
 };
 
-const phase2Tool = {
-  type: 'function' as const,
+const phase2Tool: AITool = {
+  type: 'function',
   function: {
     name: 'submit_resolution_draft',
     description: 'Submit a resolution draft for a support ticket',
@@ -61,13 +70,6 @@ const phase2Tool = {
       required: ['customerReply', 'internalNote', 'nextActions'],
     },
   },
-};
-
-// ─── Portkey call options ─────────────────────────────────────────────────────
-
-type PortkeyCallParams = {
-  traceID?: string;
-  metadata?: Record<string, string>;
 };
 
 // ─── AIAdapter class ──────────────────────────────────────────────────────────
@@ -85,90 +87,85 @@ export class AIAdapter {
     });
   }
 
-  async triageTicket(ticket: TicketInput, attempt: number): Promise<Phase1Output> {
+  private async callWithTool<T>(
+    phase: string,
+    messages: Array<{ role: 'system' | 'user'; content: string }>,
+    tool: AITool,
+    schema: z.ZodType<T>,
+    ticketId: string,
+    attempt: number,
+  ): Promise<T> {
     const start = Date.now();
 
     const response = await this.client.chat.completions.create(
       {
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a support ticket triage system. Analyze the ticket and call the submit_triage tool with your analysis.',
-          },
-          {
-            role: 'user',
-            content: `Subject: ${ticket.subject}\n\nBody: ${ticket.body}`,
-          },
-        ],
-        tools: [phase1Tool],
-        tool_choice: { type: 'function', function: { name: 'submit_triage' } },
+        messages,
+        tools: [tool],
+        tool_choice: { type: 'function', function: { name: tool.function.name } },
       },
       {
-        traceID: ticket.id,
-        metadata: { ticketId: ticket.id, phase: 'phase1', attempt: String(attempt) },
-      } satisfies PortkeyCallParams,
+        traceID: ticketId,
+        metadata: { ticketId, phase, attempt: String(attempt) },
+      },
     );
 
     const durationMs = Date.now() - start;
     const toolCall = response.choices[0]?.message?.tool_calls?.[0];
 
     if (!toolCall || toolCall.type !== 'function') {
-      throw new Error('AI returned no tool call for phase1');
+      throw new Error(`AI returned no tool call for ${phase}`);
     }
 
     const raw: unknown = JSON.parse(toolCall.function.arguments);
-    const result = Phase1Schema.safeParse(raw);
+    const result = schema.safeParse(raw);
 
     logger.info(
-      { ticketId: ticket.id, phase: 'phase1', durationMs, model: response.model, promptTokens: response.usage?.prompt_tokens, completionTokens: response.usage?.completion_tokens },
+      { ticketId, phase, durationMs, model: response.model, promptTokens: response.usage?.prompt_tokens, completionTokens: response.usage?.completion_tokens },
       'AI call completed',
     );
 
-    if (!result.success) throw new ZodValidationError('phase1', result.error.issues);
+    if (!result.success) throw new ZodValidationError(phase, result.error.issues);
     return result.data;
   }
 
+  async triageTicket(ticket: TicketInput, attempt: number): Promise<Phase1Output> {
+    return this.callWithTool(
+      'phase1',
+      [
+        {
+          role: 'system',
+          content: 'You are a support ticket triage system. Analyze the ticket and call the submit_triage tool with your analysis.',
+        },
+        {
+          role: 'user',
+          content: `Subject: ${ticket.subject}\n\nBody: ${ticket.body}`,
+        },
+      ],
+      phase1Tool,
+      Phase1Schema,
+      ticket.id,
+      attempt,
+    );
+  }
+
   async draftResolution(ticket: TicketInput, triage: Phase1Output, attempt: number): Promise<Phase2Output> {
-    const start = Date.now();
-
-    const response = await this.client.chat.completions.create(
-      {
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a support response drafting system. Using the ticket and its triage analysis, call the submit_resolution_draft tool with a professional draft response.',
-          },
-          {
-            role: 'user',
-            content: `Subject: ${ticket.subject}\n\nBody: ${ticket.body}\n\nTriage Analysis:\n${JSON.stringify(triage, null, 2)}`,
-          },
-        ],
-        tools: [phase2Tool],
-        tool_choice: { type: 'function', function: { name: 'submit_resolution_draft' } },
-      },
-      {
-        traceID: ticket.id,
-        metadata: { ticketId: ticket.id, phase: 'phase2', attempt: String(attempt) },
-      } satisfies PortkeyCallParams,
+    return this.callWithTool(
+      'phase2',
+      [
+        {
+          role: 'system',
+          content: 'You are a support response drafting system. Using the ticket and its triage analysis, call the submit_resolution_draft tool with a professional draft response.',
+        },
+        {
+          role: 'user',
+          content: `Subject: ${ticket.subject}\n\nBody: ${ticket.body}\n\nTriage Analysis:\n${JSON.stringify(triage, null, 2)}`,
+        },
+      ],
+      phase2Tool,
+      Phase2Schema,
+      ticket.id,
+      attempt,
     );
-
-    const durationMs = Date.now() - start;
-    const toolCall = response.choices[0]?.message?.tool_calls?.[0];
-
-    if (!toolCall || toolCall.type !== 'function') {
-      throw new Error('AI returned no tool call for phase2');
-    }
-
-    const raw: unknown = JSON.parse(toolCall.function.arguments);
-    const result = Phase2Schema.safeParse(raw);
-
-    logger.info(
-      { ticketId: ticket.id, phase: 'phase2', durationMs, model: response.model, promptTokens: response.usage?.prompt_tokens, completionTokens: response.usage?.completion_tokens },
-      'AI call completed',
-    );
-
-    if (!result.success) throw new ZodValidationError('phase2', result.error.issues);
-    return result.data;
   }
 }
 

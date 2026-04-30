@@ -43,10 +43,6 @@ async function retryEnqueue(ticketId: string): Promise<void> {
   }
 }
 
-async function createTicketRecord(subject: string, body: string): Promise<Ticket> {
-  return insertTicket({ subject, body });
-}
-
 export async function enqueueTicket(ticketId: string): Promise<void> {
   try {
     await sendMessage(ticketId);
@@ -57,7 +53,7 @@ export async function enqueueTicket(ticketId: string): Promise<void> {
 }
 
 export async function createTicket(subject: string, body: string): Promise<Ticket> {
-  const ticket = await createTicketRecord(subject, body);
+  const ticket = await insertTicket({ subject, body });
   await enqueueTicket(ticket.id);
   return ticket;
 }
@@ -93,7 +89,7 @@ async function resetFailedPhasesForReplay(client: PoolClient, ticketId: string):
   return rows.map(row => row.phase);
 }
 
-async function lockTicketForReplay(client: PoolClient, ticketId: string): Promise<'failed'> {
+async function lockTicketForReplay(client: PoolClient, ticketId: string): Promise<void> {
   const { rows } = await client.query<{ status: string }>(
     `SELECT status FROM tickets WHERE id = $1 FOR UPDATE`,
     [ticketId],
@@ -104,8 +100,6 @@ async function lockTicketForReplay(client: PoolClient, ticketId: string): Promis
   if (row.status !== 'failed') {
     throw new ReplayTicketError('conflict', 'Only failed tickets can be replayed');
   }
-
-  return 'failed';
 }
 
 export async function replayTicket(ticketId: string): Promise<ReplayResult> {
