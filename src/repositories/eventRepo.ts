@@ -11,6 +11,7 @@ export type EventType =
   | 'retry_scheduled'
   | 'fallback_triggered'
   | 'dlq_routed'
+  | 'dlq_send_failed'
   | 'manual_retry_triggered';
 
 export interface TicketEvent {

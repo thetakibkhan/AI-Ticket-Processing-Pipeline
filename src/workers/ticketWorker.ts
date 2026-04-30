@@ -69,12 +69,17 @@ class TicketWorker {
     await updateTicketStatus(ticketId, 'failed');
     await insertEvent({ ticketId, phase, eventType: 'dlq_routed' });
     emitTicketFailed(ticketId, `phase ${phase} failed after max attempts`);
-    await sqs.send(
-      new SendMessageCommand({
-        QueueUrl: DLQ_URL,
-        MessageBody: JSON.stringify({ ticketId, failedPhase: phase }),
-      }),
-    );
+    try {
+      await sqs.send(
+        new SendMessageCommand({
+          QueueUrl: DLQ_URL,
+          MessageBody: JSON.stringify({ ticketId, failedPhase: phase }),
+        }),
+      );
+    } catch (err) {
+      logger.error({ ticketId, phase, err }, 'DLQ send failed — ticket marked failed but not in DLQ, manual intervention required');
+      await insertEvent({ ticketId, phase, eventType: 'dlq_send_failed', payload: { error: String(err) } });
+    }
     await this.deleteMessage(receiptHandle);
   }
 
