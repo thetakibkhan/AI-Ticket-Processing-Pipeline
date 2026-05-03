@@ -1,6 +1,7 @@
-import type { QueryResult, QueryResultRow } from 'pg';
 import pool from '../lib/db.js';
-import { assertSingleRow } from './repoUtils.js';
+import { assertSingleRow, type Queryable } from './repoUtils.js';
+
+export type { Queryable };
 
 export type TicketStatus = 'queued' | 'processing' | 'completed' | 'failed';
 
@@ -16,13 +17,6 @@ export interface Ticket {
 export interface InsertTicketInput {
   subject: string;
   body: string;
-}
-
-export interface Queryable {
-  query<T extends QueryResultRow = QueryResultRow>(
-    queryText: string,
-    values?: unknown[],
-  ): Promise<QueryResult<T>>;
 }
 
 export interface ITicketRepository {
@@ -75,3 +69,20 @@ export const getTickets = () => ticketRepository.list();
 export const getTicketById = (id: string) => ticketRepository.getById(id);
 export const insertTicket = (input: InsertTicketInput) => ticketRepository.insert(input);
 export const updateTicketStatus = (id: string, status: TicketStatus) => ticketRepository.updateStatus(id, status);
+
+export async function lockTicketForReplay(db: Queryable, ticketId: string): Promise<void> {
+  const { rows } = await db.query<{ status: string }>(
+    `SELECT status FROM tickets WHERE id = $1 FOR UPDATE`,
+    [ticketId],
+  );
+  const row = rows[0];
+  if (!row) throw new Error('NOT_FOUND');
+  if (row.status !== 'failed') throw new Error('CONFLICT');
+}
+
+export async function setTicketQueued(db: Queryable, ticketId: string): Promise<void> {
+  await db.query(
+    `UPDATE tickets SET status = 'queued', updated_at = NOW() WHERE id = $1`,
+    [ticketId],
+  );
+}

@@ -1,5 +1,5 @@
 import pool from '../lib/db.js';
-import { assertSingleRow } from './repoUtils.js';
+import { assertSingleRow, type Queryable } from './repoUtils.js';
 
 export type PhaseType = 'phase1' | 'phase2';
 export type PhaseStatus = 'started' | 'progress' | 'success' | 'failure';
@@ -56,4 +56,20 @@ export async function updatePhaseStatus(
   );
 
   return assertSingleRow(rows, 'updatePhaseStatus');
+}
+
+export async function resetFailedPhases(db: Queryable, ticketId: string): Promise<PhaseType[]> {
+  const { rows } = await db.query<{ phase: PhaseType }>(
+    `UPDATE ticket_phases
+     SET
+       status = 'started',
+       attempts = 0,
+       output = NULL,
+       started_at = NULL,
+       completed_at = NULL
+     WHERE ticket_id = $1 AND status = 'failure'
+     RETURNING phase`,
+    [ticketId],
+  );
+  return rows.map(row => row.phase);
 }

@@ -1,5 +1,5 @@
 import pool from '../lib/db.js';
-import { assertSingleRow } from './repoUtils.js';
+import { assertSingleRow, type Queryable } from './repoUtils.js';
 import type { PhaseType } from './phaseRepo.js';
 
 const MAX_EVENTS_PER_TICKET = 20;
@@ -30,8 +30,8 @@ export interface InsertEventInput {
   payload?: unknown;
 }
 
-export async function insertEvent(input: InsertEventInput): Promise<TicketEvent> {
-  const { rows } = await pool.query<TicketEvent>(
+export async function insertEvent(input: InsertEventInput, db: Queryable = pool): Promise<TicketEvent> {
+  const { rows } = await db.query<TicketEvent>(
     `INSERT INTO ticket_events (ticket_id, phase, event_type, payload)
      VALUES ($1, $2, $3, $4::json)
      RETURNING *`,

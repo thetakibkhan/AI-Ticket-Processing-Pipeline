@@ -1,6 +1,8 @@
 import type { PoolClient } from 'pg';
 import pool from '../lib/db.js';
-import { insertTicket, type Ticket } from '../repositories/ticketRepo.js';
+import { insertTicket, lockTicketForReplay, setTicketQueued, type Ticket } from '../repositories/ticketRepo.js';
+import { resetFailedPhases } from '../repositories/phaseRepo.js';
+import { insertEvent } from '../repositories/eventRepo.js';
 import { sendMessage } from '../queues/producer.js';
 import logger from '../lib/logger.js';
 import type { PhaseType } from '../repositories/phaseRepo.js';
@@ -73,55 +75,29 @@ async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promi
   }
 }
 
-async function resetFailedPhasesForReplay(client: PoolClient, ticketId: string): Promise<PhaseType[]> {
-  const { rows } = await client.query<{ phase: PhaseType }>(
-    `UPDATE ticket_phases
-     SET
-       status = 'started',
-       attempts = 0,
-       output = NULL,
-       started_at = NULL,
-       completed_at = NULL
-     WHERE ticket_id = $1 AND status = 'failure'
-     RETURNING phase`,
-    [ticketId],
-  );
-  return rows.map(row => row.phase);
-}
-
-async function lockTicketForReplay(client: PoolClient, ticketId: string): Promise<void> {
-  const { rows } = await client.query<{ status: string }>(
-    `SELECT status FROM tickets WHERE id = $1 FOR UPDATE`,
-    [ticketId],
-  );
-
-  const row = rows[0];
-  if (!row) throw new ReplayTicketError('not_found', 'Ticket not found');
-  if (row.status !== 'failed') {
-    throw new ReplayTicketError('conflict', 'Only failed tickets can be replayed');
-  }
-}
-
 export async function replayTicket(ticketId: string): Promise<ReplayResult> {
   const replayedPhases = await withTransaction(async client => {
-    await lockTicketForReplay(client, ticketId);
+    try {
+      await lockTicketForReplay(client, ticketId);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'NOT_FOUND') {
+        throw new ReplayTicketError('not_found', 'Ticket not found');
+      }
+      if (err instanceof Error && err.message === 'CONFLICT') {
+        throw new ReplayTicketError('conflict', 'Only failed tickets can be replayed');
+      }
+      throw err;
+    }
 
-    const phases = await resetFailedPhasesForReplay(client, ticketId);
+    const phases = await resetFailedPhases(client, ticketId);
     if (phases.length === 0) {
       throw new ReplayTicketError('conflict', 'Ticket has no failed phase to replay');
     }
 
-    await client.query(
-      `UPDATE tickets SET status = 'queued', updated_at = NOW() WHERE id = $1`,
-      [ticketId],
-    );
+    await setTicketQueued(client, ticketId);
 
     for (const phase of phases) {
-      await client.query(
-        `INSERT INTO ticket_events (ticket_id, phase, event_type, payload)
-         VALUES ($1, $2, $3, $4::json)`,
-        [ticketId, phase, 'manual_retry_triggered', JSON.stringify({ source: 'manual_replay' })],
-      );
+      await insertEvent({ ticketId, phase, eventType: 'manual_retry_triggered', payload: { source: 'manual_replay' } }, client);
     }
 
     return phases;
