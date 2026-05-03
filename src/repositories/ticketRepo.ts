@@ -19,14 +19,7 @@ export interface InsertTicketInput {
   body: string;
 }
 
-export interface ITicketRepository {
-  list(): Promise<Ticket[]>;
-  getById(id: string): Promise<Ticket | null>;
-  insert(input: InsertTicketInput): Promise<Ticket>;
-  updateStatus(id: string, status: TicketStatus): Promise<void>;
-}
-
-export class TicketRepository implements ITicketRepository {
+export class TicketRepository {
   constructor(private readonly db: Queryable) {}
 
   async list(): Promise<Ticket[]> {
@@ -70,14 +63,19 @@ export const getTicketById = (id: string) => ticketRepository.getById(id);
 export const insertTicket = (input: InsertTicketInput) => ticketRepository.insert(input);
 export const updateTicketStatus = (id: string, status: TicketStatus) => ticketRepository.updateStatus(id, status);
 
-export async function lockTicketForReplay(db: Queryable, ticketId: string): Promise<void> {
+export type LockResult =
+  | { ok: true }
+  | { ok: false; reason: 'not_found' | 'conflict' };
+
+export async function lockTicketForReplay(db: Queryable, ticketId: string): Promise<LockResult> {
   const { rows } = await db.query<{ status: string }>(
     `SELECT status FROM tickets WHERE id = $1 FOR UPDATE`,
     [ticketId],
   );
   const row = rows[0];
-  if (!row) throw new Error('NOT_FOUND');
-  if (row.status !== 'failed') throw new Error('CONFLICT');
+  if (!row) return { ok: false, reason: 'not_found' };
+  if (row.status !== 'failed') return { ok: false, reason: 'conflict' };
+  return { ok: true };
 }
 
 export async function setTicketQueued(db: Queryable, ticketId: string): Promise<void> {

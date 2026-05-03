@@ -43,10 +43,10 @@ export async function createTicketHandler(req: Request, res: Response): Promise<
 }
 
 export async function replayTicketHandler(req: Request<{ id: string }>, res: Response): Promise<void> {
-  const id = req.params['id'];
+  const { id } = req.params;
 
   try {
-    const replayed = await replayTicket(id!);
+    const replayed = await replayTicket(id);
     logger.info({ ticketId: id }, 'ticket replay requested');
     res.status(202).json(replayed);
   } catch (err) {
@@ -66,10 +66,10 @@ export async function replayTicketHandler(req: Request<{ id: string }>, res: Res
 }
 
 export async function getTicketHandler(req: Request<{ id: string }>, res: Response): Promise<void> {
-  const id = req.params['id'];
+  const { id } = req.params;
 
   try {
-    const ticket = await getTicketById(id!);
+    const ticket = await getTicketById(id);
     if (!ticket) {
       notFound(res, 'Ticket not found');
       return;

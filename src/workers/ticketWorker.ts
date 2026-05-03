@@ -10,6 +10,7 @@ import { getTicketById, updateTicketStatus } from '../repositories/ticketRepo.js
 import { getPhase, insertPhase, updatePhaseStatus, type PhaseType } from '../repositories/phaseRepo.js';
 import { insertEvent } from '../repositories/eventRepo.js';
 import { triageTicket, draftResolution, ZodValidationError, Phase1Schema, type Phase1Output } from '../adapters/aiAdapter.js';
+import { sendMessage } from '../queues/producer.js';
 import { MessageSchema } from '../schemas/workerSchemas.js';
 import { emitTicketStarted, emitTicketProgress, emitTicketCompleted, emitTicketFailed } from '../sockets/emitter.js';
 
@@ -46,16 +47,6 @@ class TicketWorker {
 
   private async deleteMessage(receiptHandle: string): Promise<void> {
     await sqs.send(new DeleteMessageCommand({ QueueUrl: QUEUE_URL, ReceiptHandle: receiptHandle }));
-  }
-
-  private async requeueTicket(ticketId: string, delaySecs = 0): Promise<void> {
-    await sqs.send(
-      new SendMessageCommand({
-        QueueUrl: QUEUE_URL,
-        MessageBody: JSON.stringify({ ticketId }),
-        DelaySeconds: delaySecs,
-      }),
-    );
   }
 
   private async routeToDLQ(ticketId: string, phase: PhaseType, receiptHandle: string): Promise<void> {
@@ -116,7 +107,7 @@ class TicketWorker {
       if (phase === 'phase1') {
         emitTicketProgress(ticketId, phase);
         await this.deleteMessage(receiptHandle);
-        await this.requeueTicket(ticketId);
+        await sendMessage(ticketId);
       } else {
         await updateTicketStatus(ticketId, 'completed');
         emitTicketCompleted(ticketId, phase1Output, output);
@@ -147,7 +138,7 @@ class TicketWorker {
           eventType: 'retry_scheduled',
           payload: { attempt: attempts, delaySecs },
         });
-        await this.requeueTicket(ticketId, delaySecs);
+        await sendMessage(ticketId, delaySecs);
         await this.deleteMessage(receiptHandle);
       }
     }

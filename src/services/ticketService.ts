@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg';
 import pool from '../lib/db.js';
-import { insertTicket, lockTicketForReplay, setTicketQueued, type Ticket } from '../repositories/ticketRepo.js';
+import { insertTicket, lockTicketForReplay, setTicketQueued, type Ticket, type LockResult } from '../repositories/ticketRepo.js';
 import { resetFailedPhases } from '../repositories/phaseRepo.js';
 import { insertEvent } from '../repositories/eventRepo.js';
 import { sendMessage } from '../queues/producer.js';
@@ -77,16 +77,10 @@ async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promi
 
 export async function replayTicket(ticketId: string): Promise<ReplayResult> {
   const replayedPhases = await withTransaction(async client => {
-    try {
-      await lockTicketForReplay(client, ticketId);
-    } catch (err) {
-      if (err instanceof Error && err.message === 'NOT_FOUND') {
-        throw new ReplayTicketError('not_found', 'Ticket not found');
-      }
-      if (err instanceof Error && err.message === 'CONFLICT') {
-        throw new ReplayTicketError('conflict', 'Only failed tickets can be replayed');
-      }
-      throw err;
+    const lock: LockResult = await lockTicketForReplay(client, ticketId);
+    if (!lock.ok) {
+      const message = lock.reason === 'not_found' ? 'Ticket not found' : 'Only failed tickets can be replayed';
+      throw new ReplayTicketError(lock.reason, message);
     }
 
     const phases = await resetFailedPhases(client, ticketId);
