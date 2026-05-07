@@ -75,20 +75,6 @@ jobs:
         run: |
           aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name ticket-processing-dlq-test
           aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name ticket-processing-dlq
-
-          TEST_DLQ_ARN=$(aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
-            --queue-url http://localhost:4566/000000000000/ticket-processing-dlq-test \
-            --attribute-names QueueArn --query Attributes.QueueArn --output text)
-
-          MAIN_DLQ_ARN=$(aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
-            --queue-url http://localhost:4566/000000000000/ticket-processing-dlq \
-            --attribute-names QueueArn --query Attributes.QueueArn --output text)
-
-          aws --endpoint-url=http://localhost:4566 sqs create-queue \
-            --queue-name ticket-processing-queue-test \
-            --attributes "VisibilityTimeout=5,RedrivePolicy={\"deadLetterTargetArn\":\"$TEST_DLQ_ARN\",\"maxReceiveCount\":\"3\"}"
-
-          aws --endpoint-url=http://localhost:4566 sqs create-queue \
-            --queue-name ticket-processing-queue \
-            --attributes "VisibilityTimeout=5,RedrivePolicy={\"deadLetterTargetArn\":\"$MAIN_DLQ_ARN\",\"maxReceiveCount\":\"3\"}"
+          aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name ticket-processing-queue-test --attributes VisibilityTimeout=5
+          aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name ticket-processing-queue --attributes VisibilityTimeout=5
       - run: npm test
