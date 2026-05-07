@@ -31,7 +31,10 @@ export interface InsertEventInput {
   payload?: unknown;
 }
 
-export async function insertEvent(input: InsertEventInput, db: Queryable = pool): Promise<TicketEvent> {
+export async function insertEvent(
+  input: InsertEventInput,
+  db: Queryable = pool,
+): Promise<TicketEvent> {
   const { rows } = await db.query<TicketEvent>(
     `INSERT INTO ticket_events (ticket_id, phase, event_type, payload)
      VALUES ($1, $2, $3, $4::json)

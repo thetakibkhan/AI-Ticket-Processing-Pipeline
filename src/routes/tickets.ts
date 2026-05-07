@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
-import { createTicketHandler, replayTicketHandler, getTicketHandler, getTicketsHandler } from '../controllers/ticketController.js';
+import {
+  createTicketHandler,
+  replayTicketHandler,
+  getTicketHandler,
+  getTicketsHandler,
+} from '../controllers/ticketController.js';
 
 const createTicketLimiter = rateLimit({
   windowMs: 60_000,

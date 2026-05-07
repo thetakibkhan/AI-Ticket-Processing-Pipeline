@@ -1,7 +1,12 @@
 import { Portkey } from 'portkey-ai';
 import { z } from 'zod';
 import logger from '../lib/logger.js';
-import { Phase1Schema, Phase2Schema, type Phase1Output, type Phase2Output } from '../schemas/aiSchemas.js';
+import {
+  Phase1Schema,
+  Phase2Schema,
+  type Phase1Output,
+  type Phase2Output,
+} from '../schemas/aiSchemas.js';
 
 export { Phase1Schema, Phase2Schema } from '../schemas/aiSchemas.js';
 export type { Phase1Output, Phase2Output } from '../schemas/aiSchemas.js';
@@ -43,11 +48,17 @@ const phase1Tool: AITool = {
     parameters: {
       type: 'object',
       properties: {
-        category: { type: 'string', enum: ['billing', 'technical', 'account', 'feature_request', 'other'] },
+        category: {
+          type: 'string',
+          enum: ['billing', 'technical', 'account', 'feature_request', 'other'],
+        },
         priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
         sentiment: { type: 'string', enum: ['positive', 'neutral', 'negative', 'frustrated'] },
         escalation: { type: 'boolean' },
-        routingTarget: { type: 'string', enum: ['tier1', 'tier2', 'billing_team', 'engineering', 'account_management'] },
+        routingTarget: {
+          type: 'string',
+          enum: ['tier1', 'tier2', 'billing_team', 'engineering', 'account_management'],
+        },
         summary: { type: 'string', minLength: 10, maxLength: 300 },
       },
       required: ['category', 'priority', 'sentiment', 'escalation', 'routingTarget', 'summary'],
@@ -120,7 +131,14 @@ export class AIAdapter {
     const result = schema.safeParse(raw);
 
     logger.info(
-      { ticketId, phase, durationMs, model: response.model, promptTokens: response.usage?.prompt_tokens, completionTokens: response.usage?.completion_tokens },
+      {
+        ticketId,
+        phase,
+        durationMs,
+        model: response.model,
+        promptTokens: response.usage?.prompt_tokens,
+        completionTokens: response.usage?.completion_tokens,
+      },
       'AI call completed',
     );
 
@@ -134,7 +152,8 @@ export class AIAdapter {
       [
         {
           role: 'system',
-          content: 'You are a support ticket triage system. Analyze the ticket and call the submit_triage tool with your analysis.',
+          content:
+            'You are a support ticket triage system. Analyze the ticket and call the submit_triage tool with your analysis.',
         },
         {
           role: 'user',
@@ -148,13 +167,18 @@ export class AIAdapter {
     );
   }
 
-  async draftResolution(ticket: TicketInput, triage: Phase1Output, attempt: number): Promise<Phase2Output> {
+  async draftResolution(
+    ticket: TicketInput,
+    triage: Phase1Output,
+    attempt: number,
+  ): Promise<Phase2Output> {
     return this.callWithTool(
       'phase2',
       [
         {
           role: 'system',
-          content: 'You are a support response drafting system. Using the ticket and its triage analysis, call the submit_resolution_draft tool with a professional draft response.',
+          content:
+            'You are a support response drafting system. Using the ticket and its triage analysis, call the submit_resolution_draft tool with a professional draft response.',
         },
         {
           role: 'user',

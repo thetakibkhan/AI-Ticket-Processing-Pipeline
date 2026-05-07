@@ -20,7 +20,10 @@ export function initIO(httpServer: HttpServer): Server {
         return;
       }
       const joined = socket.join(`ticket:${ticketId}`);
-      const finish = () => { logger.info({ socketId: socket.id, ticketId }, 'client joined room'); ack?.(); };
+      const finish = () => {
+        logger.info({ socketId: socket.id, ticketId }, 'client joined room');
+        ack?.();
+      };
       if (joined instanceof Promise) void joined.then(finish);
       else finish();
     });

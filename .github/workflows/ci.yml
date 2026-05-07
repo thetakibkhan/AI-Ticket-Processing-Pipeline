@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: Type check, lint, format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm run format:check
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    needs: check
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: takib
+          POSTGRES_PASSWORD: takib
+          POSTGRES_DB: ticket_processing
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      localstack:
+        image: localstack/localstack:3.8
+        env:
+          SERVICES: sqs
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://takib:takib@localhost:5432/ticket_processing
+      SQS_QUEUE_URL: http://localhost:4566/000000000000/ticket-processing-queue-test
+      SQS_DLQ_URL: http://localhost:4566/000000000000/ticket-processing-dlq-test
+      SQS_ENDPOINT: http://localhost:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      PORTKEY_API_KEY: test
+      PORTKEY_CONFIG_ID: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run migrations
+        run: |
+          for f in migrations/*.sql; do
+            psql "$DATABASE_URL" -f "$f"
+          done
+      - name: Create SQS queues
+        run: |
+          aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name ticket-processing-dlq-test
+          aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name ticket-processing-dlq
+
+          TEST_DLQ_ARN=$(aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+            --queue-url http://localhost:4566/000000000000/ticket-processing-dlq-test \
+            --attribute-names QueueArn --query Attributes.QueueArn --output text)
+
+          MAIN_DLQ_ARN=$(aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+            --queue-url http://localhost:4566/000000000000/ticket-processing-dlq \
+            --attribute-names QueueArn --query Attributes.QueueArn --output text)
+
+          aws --endpoint-url=http://localhost:4566 sqs create-queue \
+            --queue-name ticket-processing-queue-test \
+            --attributes "VisibilityTimeout=5,RedrivePolicy={\"deadLetterTargetArn\":\"$TEST_DLQ_ARN\",\"maxReceiveCount\":\"3\"}"
+
+          aws --endpoint-url=http://localhost:4566 sqs create-queue \
+            --queue-name ticket-processing-queue \
+            --attributes "VisibilityTimeout=5,RedrivePolicy={\"deadLetterTargetArn\":\"$MAIN_DLQ_ARN\",\"maxReceiveCount\":\"3\"}"
+      - run: npm test

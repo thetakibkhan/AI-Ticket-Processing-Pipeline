@@ -10,7 +10,10 @@ beforeEach(async () => {
 
 describe('US-1.1 — Customer Requests Are Never Lost', () => {
   it('writes ticket to permanent storage immediately', async () => {
-    const ticket = await insertTicket({ subject: 'Login broken', body: 'Cannot login since yesterday' });
+    const ticket = await insertTicket({
+      subject: 'Login broken',
+      body: 'Cannot login since yesterday',
+    });
     expect(ticket.id).toBeDefined();
     expect(ticket.subject).toBe('Login broken');
     expect(ticket.body).toBe('Cannot login since yesterday');

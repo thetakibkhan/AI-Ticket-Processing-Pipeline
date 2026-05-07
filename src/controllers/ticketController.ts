@@ -22,7 +22,10 @@ export async function createTicketHandler(req: Request, res: Response): Promise<
   const parsed = CreateTicketBody.safeParse(req.body);
 
   if (!parsed.success) {
-    badRequest(res, parsed.error.issues.map(i => i.message));
+    badRequest(
+      res,
+      parsed.error.issues.map((i) => i.message),
+    );
     return;
   }
 
@@ -42,7 +45,10 @@ export async function createTicketHandler(req: Request, res: Response): Promise<
   }
 }
 
-export async function replayTicketHandler(req: Request<{ id: string }>, res: Response): Promise<void> {
+export async function replayTicketHandler(
+  req: Request<{ id: string }>,
+  res: Response,
+): Promise<void> {
   const { id } = req.params;
 
   try {
@@ -104,7 +110,7 @@ export async function getTicketsHandler(_req: Request, res: Response): Promise<v
     const tickets = await getTickets();
 
     res.status(200).json({
-      tickets: tickets.map(ticket => ({
+      tickets: tickets.map((ticket) => ({
         ticketId: ticket.id,
         status: ticket.status,
         subject: ticket.subject,

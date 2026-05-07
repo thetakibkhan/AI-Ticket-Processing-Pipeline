@@ -7,12 +7,28 @@ import {
 import sqs, { QUEUE_URL, DLQ_URL } from '../lib/sqs.js';
 import logger from '../lib/logger.js';
 import { getTicketById, updateTicketStatus } from '../repositories/ticketRepo.js';
-import { getPhase, insertPhase, updatePhaseStatus, type PhaseType } from '../repositories/phaseRepo.js';
+import {
+  getPhase,
+  insertPhase,
+  updatePhaseStatus,
+  type PhaseType,
+} from '../repositories/phaseRepo.js';
 import { insertEvent } from '../repositories/eventRepo.js';
-import { triageTicket, draftResolution, ZodValidationError, Phase1Schema, type Phase1Output } from '../adapters/aiAdapter.js';
+import {
+  triageTicket,
+  draftResolution,
+  ZodValidationError,
+  Phase1Schema,
+  type Phase1Output,
+} from '../adapters/aiAdapter.js';
 import { sendMessage } from '../queues/producer.js';
 import { MessageSchema } from '../schemas/workerSchemas.js';
-import { emitTicketStarted, emitTicketProgress, emitTicketCompleted, emitTicketFailed } from '../sockets/emitter.js';
+import {
+  emitTicketStarted,
+  emitTicketProgress,
+  emitTicketCompleted,
+  emitTicketFailed,
+} from '../sockets/emitter.js';
 
 const WORKER_CONFIG = {
   maxAttempts: 3,
@@ -49,7 +65,11 @@ class TicketWorker {
     await sqs.send(new DeleteMessageCommand({ QueueUrl: QUEUE_URL, ReceiptHandle: receiptHandle }));
   }
 
-  private async routeToDLQ(ticketId: string, phase: PhaseType, receiptHandle: string): Promise<void> {
+  private async routeToDLQ(
+    ticketId: string,
+    phase: PhaseType,
+    receiptHandle: string,
+  ): Promise<void> {
     logger.warn({ ticketId, phase }, 'max attempts reached, routing to DLQ');
     await updateTicketStatus(ticketId, 'failed');
     await insertEvent({ ticketId, phase, eventType: 'dlq_routed' });
@@ -62,8 +82,16 @@ class TicketWorker {
         }),
       );
     } catch (err) {
-      logger.error({ ticketId, phase, err }, 'DLQ send failed — ticket marked failed but not in DLQ, manual intervention required');
-      await insertEvent({ ticketId, phase, eventType: 'dlq_send_failed', payload: { error: String(err) } });
+      logger.error(
+        { ticketId, phase, err },
+        'DLQ send failed — ticket marked failed but not in DLQ, manual intervention required',
+      );
+      await insertEvent({
+        ticketId,
+        phase,
+        eventType: 'dlq_send_failed',
+        payload: { error: String(err) },
+      });
     }
     await this.deleteMessage(receiptHandle);
   }
@@ -115,7 +143,12 @@ class TicketWorker {
       }
     } catch (err) {
       await updatePhaseStatus(ticketId, phase, 'failure');
-      await insertEvent({ ticketId, phase, eventType: 'phase_failed', payload: { error: String(err) } });
+      await insertEvent({
+        ticketId,
+        phase,
+        eventType: 'phase_failed',
+        payload: { error: String(err) },
+      });
       logger.error({ ticketId, phase, err }, 'phase failed');
 
       // Zod validation failure = bad AI output, retrying same input won't help
@@ -226,8 +259,6 @@ class TicketWorker {
     process.exit(0);
   }
 }
-
-
 
 const worker = new TicketWorker();
 

@@ -2,17 +2,19 @@ import { getIO } from './socketServer.js';
 import logger from '../lib/logger.js';
 
 export const TICKET_EVENTS = {
-  STARTED:   'ticket.started',
-  PROGRESS:  'ticket.progress',
+  STARTED: 'ticket.started',
+  PROGRESS: 'ticket.progress',
   COMPLETED: 'ticket.completed',
-  FAILED:    'ticket.failed',
+  FAILED: 'ticket.failed',
 } as const;
 
-export type TicketEventType = typeof TICKET_EVENTS[keyof typeof TICKET_EVENTS];
+export type TicketEventType = (typeof TICKET_EVENTS)[keyof typeof TICKET_EVENTS];
 
 function emit(ticketId: string, event: TicketEventType, payload: Record<string, unknown>): void {
   try {
-    getIO().to(`ticket:${ticketId}`).emit(event, { ticketId, ...payload, timestamp: new Date().toISOString() });
+    getIO()
+      .to(`ticket:${ticketId}`)
+      .emit(event, { ticketId, ...payload, timestamp: new Date().toISOString() });
   } catch (err) {
     logger.warn({ ticketId, event, err }, 'socket emit failed, continuing');
   }
@@ -26,7 +28,11 @@ export function emitTicketProgress(ticketId: string, completedPhase: string): vo
   emit(ticketId, TICKET_EVENTS.PROGRESS, { completedPhase });
 }
 
-export function emitTicketCompleted(ticketId: string, phase1Output: unknown, phase2Output: unknown): void {
+export function emitTicketCompleted(
+  ticketId: string,
+  phase1Output: unknown,
+  phase2Output: unknown,
+): void {
   emit(ticketId, TICKET_EVENTS.COMPLETED, { phase1Output, phase2Output });
 }
 

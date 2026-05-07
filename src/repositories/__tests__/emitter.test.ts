@@ -21,7 +21,11 @@ describe('emitTicketStarted', () => {
     expect(mockTo).toHaveBeenCalledWith('ticket:ticket-123');
     expect(mockEmit).toHaveBeenCalledWith(
       'ticket.started',
-      expect.objectContaining({ ticketId: 'ticket-123', phase: 'phase1', timestamp: expect.any(String) }),
+      expect.objectContaining({
+        ticketId: 'ticket-123',
+        phase: 'phase1',
+        timestamp: expect.any(String),
+      }),
     );
   });
 });
@@ -62,16 +66,16 @@ describe('emitTicketFailed', () => {
     emitTicketFailed('ticket-123', 'phase1 failed after max attempts');
     expect(mockEmit).toHaveBeenCalledWith(
       'ticket.failed',
-      expect.objectContaining({ ticketId: 'ticket-123', reason: 'phase1 failed after max attempts' }),
+      expect.objectContaining({
+        ticketId: 'ticket-123',
+        reason: 'phase1 failed after max attempts',
+      }),
     );
   });
 
   it('handles empty reason string', () => {
     expect(() => emitTicketFailed('ticket-123', '')).not.toThrow();
-    expect(mockEmit).toHaveBeenCalledWith(
-      'ticket.failed',
-      expect.objectContaining({ reason: '' }),
-    );
+    expect(mockEmit).toHaveBeenCalledWith('ticket.failed', expect.objectContaining({ reason: '' }));
   });
 });
 
@@ -102,21 +106,32 @@ describe('room routing', () => {
 describe('error handling', () => {
   it('does not throw if getIO throws', async () => {
     const { getIO } = await import('../../sockets/socketServer.js');
-    vi.mocked(getIO).mockImplementationOnce(() => { throw new Error('not initialized'); });
+    vi.mocked(getIO).mockImplementationOnce(() => {
+      throw new Error('not initialized');
+    });
     expect(() => emitTicketStarted('ticket-123', 'phase1')).not.toThrow();
   });
 
   it('does not throw if emit throws', async () => {
     const { getIO } = await import('../../sockets/socketServer.js');
-    vi.mocked(getIO).mockImplementationOnce(() => ({
-      to: () => ({ emit: () => { throw new Error('socket write error'); } }),
-    }) as never);
+    vi.mocked(getIO).mockImplementationOnce(
+      () =>
+        ({
+          to: () => ({
+            emit: () => {
+              throw new Error('socket write error');
+            },
+          }),
+        }) as never,
+    );
     expect(() => emitTicketStarted('ticket-123', 'phase1')).not.toThrow();
   });
 
   it('other events still work after one emit failure', async () => {
     const { getIO } = await import('../../sockets/socketServer.js');
-    vi.mocked(getIO).mockImplementationOnce(() => { throw new Error('fail'); });
+    vi.mocked(getIO).mockImplementationOnce(() => {
+      throw new Error('fail');
+    });
     emitTicketStarted('ticket-123', 'phase1'); // fails silently
     emitTicketProgress('ticket-123', 'phase1'); // must still work
     expect(mockEmit).toHaveBeenCalledWith('ticket.progress', expect.any(Object));

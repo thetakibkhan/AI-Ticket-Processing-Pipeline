@@ -13,7 +13,7 @@ beforeEach(async () => {
   await pool.query('DELETE FROM ticket_phases');
   await pool.query('DELETE FROM tickets');
   await sqs.send(new PurgeQueueCommand({ QueueUrl: QUEUE_URL }));
-  await new Promise(r => setTimeout(r, 300));
+  await new Promise((r) => setTimeout(r, 300));
 });
 
 // ─── US-2.1: POST /tickets ────────────────────────────────────────────────────
@@ -95,9 +95,7 @@ describe('US-2.2 — Support Team Can Check the Status of Any Ticket at Any Time
   });
 
   it('returns both phase keys — null when not started', async () => {
-    const post = await request(app)
-      .post('/tickets')
-      .send({ subject: 'Test', body: 'Body' });
+    const post = await request(app).post('/tickets').send({ subject: 'Test', body: 'Body' });
 
     const res = await request(app).get(`/tickets/${post.body.ticketId}`);
 
@@ -107,9 +105,7 @@ describe('US-2.2 — Support Team Can Check the Status of Any Ticket at Any Time
   });
 
   it('returns events array', async () => {
-    const post = await request(app)
-      .post('/tickets')
-      .send({ subject: 'Test', body: 'Body' });
+    const post = await request(app).post('/tickets').send({ subject: 'Test', body: 'Body' });
 
     const res = await request(app).get(`/tickets/${post.body.ticketId}`);
 
@@ -124,9 +120,7 @@ describe('US-2.2 — Support Team Can Check the Status of Any Ticket at Any Time
   });
 
   it('shows phase output when phase completed', async () => {
-    const post = await request(app)
-      .post('/tickets')
-      .send({ subject: 'Test', body: 'Body' });
+    const post = await request(app).post('/tickets').send({ subject: 'Test', body: 'Body' });
 
     const ticketId = post.body.ticketId;
     await pool.query(
@@ -142,9 +136,7 @@ describe('US-2.2 — Support Team Can Check the Status of Any Ticket at Any Time
   });
 
   it('response format is consistent regardless of ticket stage', async () => {
-    const post = await request(app)
-      .post('/tickets')
-      .send({ subject: 'Consistency', body: 'Test' });
+    const post = await request(app).post('/tickets').send({ subject: 'Consistency', body: 'Test' });
 
     const res = await request(app).get(`/tickets/${post.body.ticketId}`);
 
@@ -213,17 +205,20 @@ describe('POST /tickets/:id/replay', () => {
        VALUES
          ($1, 'phase1', 'success', 1, $2::json, NOW(), NOW()),
          ($1, 'phase2', 'failure', 3, $3::json, NOW(), NOW())`,
-      [ticket.id, JSON.stringify({ category: 'technical' }), JSON.stringify({ error: 'timed out' })],
+      [
+        ticket.id,
+        JSON.stringify({ category: 'technical' }),
+        JSON.stringify({ error: 'timed out' }),
+      ],
     );
 
     const res = await request(app).post(`/tickets/${ticket.id}/replay`);
     expect(res.status).toBe(202);
     expect(res.body).toEqual({ ticketId: ticket.id, status: 'queued' });
 
-    const { rows: ticketRows } = await pool.query(
-      `SELECT status FROM tickets WHERE id = $1`,
-      [ticket.id],
-    );
+    const { rows: ticketRows } = await pool.query(`SELECT status FROM tickets WHERE id = $1`, [
+      ticket.id,
+    ]);
     expect(ticketRows[0]!.status).toBe('queued');
 
     const { rows: phases } = await pool.query(
@@ -234,8 +229,8 @@ describe('POST /tickets/:id/replay', () => {
       [ticket.id],
     );
 
-    const phase1 = phases.find(p => p.phase === 'phase1');
-    const phase2 = phases.find(p => p.phase === 'phase2');
+    const phase1 = phases.find((p) => p.phase === 'phase1');
+    const phase2 = phases.find((p) => p.phase === 'phase2');
 
     expect(phase1).toMatchObject({
       phase: 'phase1',

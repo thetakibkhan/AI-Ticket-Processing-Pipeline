@@ -10,7 +10,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "queues": "bash scripts/create-queues.sh",
-    "socket:test": "bash scripts/socket-test.sh"
+    "socket:test": "bash scripts/socket-test.sh",
+    "lint": "eslint src",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src"
   },
   "keywords": [],
   "author": "",

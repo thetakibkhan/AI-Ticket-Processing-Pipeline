@@ -1,6 +1,13 @@
 import type { PoolClient } from 'pg';
 import pool from '../lib/db.js';
-import { insertTicket, lockTicketForReplay, setTicketQueued, updateTicketStatus, type Ticket, type LockResult } from '../repositories/ticketRepo.js';
+import {
+  insertTicket,
+  lockTicketForReplay,
+  setTicketQueued,
+  updateTicketStatus,
+  type Ticket,
+  type LockResult,
+} from '../repositories/ticketRepo.js';
 import { resetFailedPhases } from '../repositories/phaseRepo.js';
 import { insertEvent } from '../repositories/eventRepo.js';
 import { sendMessage } from '../queues/producer.js';
@@ -24,7 +31,7 @@ export class ReplayTicketError extends Error {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 async function retryEnqueue(ticketId: string): Promise<void> {
@@ -38,7 +45,10 @@ async function retryEnqueue(ticketId: string): Promise<void> {
     } catch (err) {
       lastErr = err;
       if (attempt >= MAX_SQS_RETRIES) {
-        logger.error({ ticketId, attempt, err }, 'sqs enqueue failed after max retries — manual replay required');
+        logger.error(
+          { ticketId, attempt, err },
+          'sqs enqueue failed after max retries — manual replay required',
+        );
       } else {
         logger.warn({ ticketId, attempt, delayMs }, 'sqs enqueue retry failed, will retry');
       }
@@ -46,9 +56,16 @@ async function retryEnqueue(ticketId: string): Promise<void> {
   }
   try {
     await updateTicketStatus(ticketId, 'failed');
-    await insertEvent({ ticketId, eventType: 'enqueue_failed', payload: { error: String(lastErr), attempts: MAX_SQS_RETRIES } });
+    await insertEvent({
+      ticketId,
+      eventType: 'enqueue_failed',
+      payload: { error: String(lastErr), attempts: MAX_SQS_RETRIES },
+    });
   } catch (err) {
-    logger.error({ ticketId, err }, 'failed to record enqueue failure — ticket may be stuck as queued');
+    logger.error(
+      { ticketId, err },
+      'failed to record enqueue failure — ticket may be stuck as queued',
+    );
   }
 }
 
@@ -83,10 +100,11 @@ async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promi
 }
 
 export async function replayTicket(ticketId: string): Promise<ReplayResult> {
-  const replayedPhases = await withTransaction(async client => {
+  const replayedPhases = await withTransaction(async (client) => {
     const lock: LockResult = await lockTicketForReplay(client, ticketId);
     if (!lock.ok) {
-      const message = lock.reason === 'not_found' ? 'Ticket not found' : 'Only failed tickets can be replayed';
+      const message =
+        lock.reason === 'not_found' ? 'Ticket not found' : 'Only failed tickets can be replayed';
       throw new ReplayTicketError(lock.reason, message);
     }
 
@@ -95,7 +113,15 @@ export async function replayTicket(ticketId: string): Promise<ReplayResult> {
     await setTicketQueued(client, ticketId);
 
     for (const phase of phases) {
-      await insertEvent({ ticketId, phase, eventType: 'manual_retry_triggered', payload: { source: 'manual_replay' } }, client);
+      await insertEvent(
+        {
+          ticketId,
+          phase,
+          eventType: 'manual_retry_triggered',
+          payload: { source: 'manual_replay' },
+        },
+        client,
+      );
     }
 
     return phases;

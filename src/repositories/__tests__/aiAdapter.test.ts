@@ -48,8 +48,13 @@ const validPhase1Output: Phase1Output = {
 const validPhase2Output = {
   customerReply:
     'Thank you for reaching out. We have identified the issue with your admin panel access and our engineering team is working on a fix. You should regain access within 2 hours.',
-  internalNote: 'Customer experiencing 403 on admin panel. Likely a permissions configuration issue. Escalate to engineering.',
-  nextActions: ['Check user permissions in admin console', 'Review recent permission changes', 'Follow up in 2 hours'],
+  internalNote:
+    'Customer experiencing 403 on admin panel. Likely a permissions configuration issue. Escalate to engineering.',
+  nextActions: [
+    'Check user permissions in admin console',
+    'Review recent permission changes',
+    'Follow up in 2 hours',
+  ],
 };
 
 describe('triageTicket', () => {
@@ -86,9 +91,7 @@ describe('triageTicket', () => {
   });
 
   it('throws ZodValidationError when summary is too short', async () => {
-    mockCreate.mockResolvedValueOnce(
-      makeToolResponse({ ...validPhase1Output, summary: 'short' }),
-    );
+    mockCreate.mockResolvedValueOnce(makeToolResponse({ ...validPhase1Output, summary: 'short' }));
     await expect(triageTicket(ticket, 1)).rejects.toBeInstanceOf(ZodValidationError);
   });
 
@@ -109,7 +112,7 @@ describe('triageTicket', () => {
 
   it('re-throws network error as-is (not ZodValidationError)', async () => {
     mockCreate.mockRejectedValueOnce(new Error('Network timeout'));
-    const err = await triageTicket(ticket, 1).catch(e => e);
+    const err = await triageTicket(ticket, 1).catch((e) => e);
     expect(err).not.toBeInstanceOf(ZodValidationError);
     expect(err.message).toBe('Network timeout');
   });
@@ -148,9 +151,7 @@ describe('draftResolution', () => {
   });
 
   it('throws ZodValidationError when nextActions empty array', async () => {
-    mockCreate.mockResolvedValueOnce(
-      makeToolResponse({ ...validPhase2Output, nextActions: [] }),
-    );
+    mockCreate.mockResolvedValueOnce(makeToolResponse({ ...validPhase2Output, nextActions: [] }));
     await expect(draftResolution(ticket, validPhase1Output, 1)).rejects.toBeInstanceOf(
       ZodValidationError,
     );

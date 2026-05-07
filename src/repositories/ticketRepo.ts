@@ -23,17 +23,12 @@ export class TicketRepository {
   constructor(private readonly db: Queryable) {}
 
   async list(): Promise<Ticket[]> {
-    const { rows } = await this.db.query<Ticket>(
-      `SELECT * FROM tickets ORDER BY created_at DESC`,
-    );
+    const { rows } = await this.db.query<Ticket>(`SELECT * FROM tickets ORDER BY created_at DESC`);
     return rows;
   }
 
   async getById(id: string): Promise<Ticket | null> {
-    const { rows } = await this.db.query<Ticket>(
-      `SELECT * FROM tickets WHERE id = $1`,
-      [id],
-    );
+    const { rows } = await this.db.query<Ticket>(`SELECT * FROM tickets WHERE id = $1`, [id]);
     return rows[0] ?? null;
   }
 
@@ -48,10 +43,10 @@ export class TicketRepository {
   }
 
   async updateStatus(id: string, status: TicketStatus): Promise<void> {
-    await this.db.query(
-      `UPDATE tickets SET status = $2, updated_at = NOW() WHERE id = $1`,
-      [id, status],
-    );
+    await this.db.query(`UPDATE tickets SET status = $2, updated_at = NOW() WHERE id = $1`, [
+      id,
+      status,
+    ]);
   }
 }
 
@@ -61,11 +56,10 @@ export const ticketRepository = new TicketRepository(pool);
 export const getTickets = () => ticketRepository.list();
 export const getTicketById = (id: string) => ticketRepository.getById(id);
 export const insertTicket = (input: InsertTicketInput) => ticketRepository.insert(input);
-export const updateTicketStatus = (id: string, status: TicketStatus) => ticketRepository.updateStatus(id, status);
+export const updateTicketStatus = (id: string, status: TicketStatus) =>
+  ticketRepository.updateStatus(id, status);
 
-export type LockResult =
-  | { ok: true }
-  | { ok: false; reason: 'not_found' | 'conflict' };
+export type LockResult = { ok: true } | { ok: false; reason: 'not_found' | 'conflict' };
 
 export async function lockTicketForReplay(db: Queryable, ticketId: string): Promise<LockResult> {
   const { rows } = await db.query<{ status: string }>(
@@ -79,8 +73,7 @@ export async function lockTicketForReplay(db: Queryable, ticketId: string): Prom
 }
 
 export async function setTicketQueued(db: Queryable, ticketId: string): Promise<void> {
-  await db.query(
-    `UPDATE tickets SET status = 'queued', updated_at = NOW() WHERE id = $1`,
-    [ticketId],
-  );
+  await db.query(`UPDATE tickets SET status = 'queued', updated_at = NOW() WHERE id = $1`, [
+    ticketId,
+  ]);
 }

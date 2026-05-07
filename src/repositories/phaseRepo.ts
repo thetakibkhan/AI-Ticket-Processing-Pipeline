@@ -71,5 +71,5 @@ export async function resetFailedPhases(db: Queryable, ticketId: string): Promis
      RETURNING phase`,
     [ticketId],
   );
-  return rows.map(row => row.phase);
+  return rows.map((row) => row.phase);
 }
