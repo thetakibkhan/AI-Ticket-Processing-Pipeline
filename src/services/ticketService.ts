@@ -1,11 +1,10 @@
 import type { PoolClient } from 'pg';
 import pool from '../lib/db.js';
-import { insertTicket, lockTicketForReplay, setTicketQueued, type Ticket, type LockResult } from '../repositories/ticketRepo.js';
+import { insertTicket, lockTicketForReplay, setTicketQueued, updateTicketStatus, type Ticket, type LockResult } from '../repositories/ticketRepo.js';
 import { resetFailedPhases } from '../repositories/phaseRepo.js';
 import { insertEvent } from '../repositories/eventRepo.js';
 import { sendMessage } from '../queues/producer.js';
 import logger from '../lib/logger.js';
-import type { PhaseType } from '../repositories/phaseRepo.js';
 
 const MAX_SQS_RETRIES = 3;
 
@@ -29,6 +28,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function retryEnqueue(ticketId: string): Promise<void> {
+  let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_SQS_RETRIES; attempt++) {
     const delayMs = Math.pow(2, attempt - 1) * 500;
     await sleep(delayMs);
@@ -36,12 +36,19 @@ async function retryEnqueue(ticketId: string): Promise<void> {
       await sendMessage(ticketId);
       return;
     } catch (err) {
+      lastErr = err;
       if (attempt >= MAX_SQS_RETRIES) {
         logger.error({ ticketId, attempt, err }, 'sqs enqueue failed after max retries — manual replay required');
       } else {
         logger.warn({ ticketId, attempt, delayMs }, 'sqs enqueue retry failed, will retry');
       }
     }
+  }
+  try {
+    await updateTicketStatus(ticketId, 'failed');
+    await insertEvent({ ticketId, eventType: 'enqueue_failed', payload: { error: String(lastErr), attempts: MAX_SQS_RETRIES } });
+  } catch (err) {
+    logger.error({ ticketId, err }, 'failed to record enqueue failure — ticket may be stuck as queued');
   }
 }
 
@@ -84,9 +91,6 @@ export async function replayTicket(ticketId: string): Promise<ReplayResult> {
     }
 
     const phases = await resetFailedPhases(client, ticketId);
-    if (phases.length === 0) {
-      throw new ReplayTicketError('conflict', 'Ticket has no failed phase to replay');
-    }
 
     await setTicketQueued(client, ticketId);
 

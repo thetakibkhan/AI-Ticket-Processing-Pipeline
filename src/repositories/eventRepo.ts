@@ -12,12 +12,13 @@ export type EventType =
   | 'fallback_triggered'
   | 'dlq_routed'
   | 'dlq_send_failed'
-  | 'manual_retry_triggered';
+  | 'manual_retry_triggered'
+  | 'enqueue_failed';
 
 export interface TicketEvent {
   id: string;
   ticket_id: string;
-  phase: PhaseType;
+  phase: PhaseType | null;
   event_type: EventType;
   payload: unknown | null;
   created_at: Date;
@@ -25,7 +26,7 @@ export interface TicketEvent {
 
 export interface InsertEventInput {
   ticketId: string;
-  phase: PhaseType;
+  phase?: PhaseType;
   eventType: EventType;
   payload?: unknown;
 }
@@ -35,7 +36,7 @@ export async function insertEvent(input: InsertEventInput, db: Queryable = pool)
     `INSERT INTO ticket_events (ticket_id, phase, event_type, payload)
      VALUES ($1, $2, $3, $4::json)
      RETURNING *`,
-    [input.ticketId, input.phase, input.eventType, JSON.stringify(input.payload ?? null)],
+    [input.ticketId, input.phase ?? null, input.eventType, JSON.stringify(input.payload ?? null)],
   );
   return assertSingleRow(rows, 'insertEvent');
 }
