@@ -1,6 +1,7 @@
 import pool from '../lib/db.js';
 import { assertSingleRow, type Queryable } from './repoUtils.js';
 
+export type { Queryable };
 export type PhaseType = 'phase1' | 'phase2';
 export type PhaseStatus = 'started' | 'progress' | 'success' | 'failure';
 
@@ -15,8 +16,12 @@ export interface TicketPhase {
   completed_at: Date | null;
 }
 
-export async function insertPhase(ticketId: string, phase: PhaseType): Promise<TicketPhase> {
-  const { rows } = await pool.query<TicketPhase>(
+export async function insertPhase(
+  ticketId: string,
+  phase: PhaseType,
+  db: Queryable = pool,
+): Promise<TicketPhase> {
+  const { rows } = await db.query<TicketPhase>(
     `INSERT INTO ticket_phases (ticket_id, phase)
      VALUES ($1, $2)
      RETURNING *`,
@@ -25,8 +30,12 @@ export async function insertPhase(ticketId: string, phase: PhaseType): Promise<T
   return assertSingleRow(rows, 'insertPhase');
 }
 
-export async function getPhase(ticketId: string, phase: PhaseType): Promise<TicketPhase | null> {
-  const { rows } = await pool.query<TicketPhase>(
+export async function getPhase(
+  ticketId: string,
+  phase: PhaseType,
+  db: Queryable = pool,
+): Promise<TicketPhase | null> {
+  const { rows } = await db.query<TicketPhase>(
     `SELECT * FROM ticket_phases WHERE ticket_id = $1 AND phase = $2`,
     [ticketId, phase],
   );
@@ -38,11 +47,12 @@ export async function updatePhaseStatus(
   phase: PhaseType,
   status: PhaseStatus,
   output?: unknown,
+  db: Queryable = pool,
 ): Promise<TicketPhase> {
   const isTerminal = status === 'success' || status === 'failure';
   const isStarting = status === 'started';
 
-  const { rows } = await pool.query<TicketPhase>(
+  const { rows } = await db.query<TicketPhase>(
     `UPDATE ticket_phases
      SET
        status       = $3,

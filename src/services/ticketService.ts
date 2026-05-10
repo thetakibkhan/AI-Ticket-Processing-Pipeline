@@ -1,5 +1,3 @@
-import type { PoolClient } from 'pg';
-import pool from '../lib/db.js';
 import {
   insertTicket,
   lockTicketForReplay,
@@ -10,6 +8,7 @@ import {
 } from '../repositories/ticketRepo.js';
 import { resetFailedPhases } from '../repositories/phaseRepo.js';
 import { insertEvent } from '../repositories/eventRepo.js';
+import { withTransaction } from '../repositories/repoUtils.js';
 import { sendMessage } from '../queues/producer.js';
 import logger from '../lib/logger.js';
 
@@ -82,21 +81,6 @@ export async function createTicket(subject: string, body: string): Promise<Ticke
   const ticket = await insertTicket({ subject, body });
   await enqueueTicket(ticket.id);
   return ticket;
-}
-
-async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const result = await fn(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
 }
 
 export async function replayTicket(ticketId: string): Promise<ReplayResult> {

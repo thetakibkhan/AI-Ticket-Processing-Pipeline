@@ -20,11 +20,16 @@ beforeAll(async () => {
       'retry_scheduled',
       'fallback_triggered',
       'dlq_routed',
-      'manual_retry_triggered'
+      'dlq_send_failed',
+      'manual_retry_triggered',
+      'enqueue_failed'
     ));
   `);
 });
 
 afterAll(async () => {
+  await pool.query('DELETE FROM ticket_events');
+  await pool.query('DELETE FROM ticket_phases');
+  await pool.query('DELETE FROM tickets');
   await pool.end();
 });
